@@ -59,7 +59,7 @@ Provide a reproducible OCI image that:
 |---|---|
 | Builder stage | First stage of the multi-stage build. Compiles the Rust binary against a static musl target for the target architecture. Runs natively via `BUILDPLATFORM` so QEMU is not invoked during compilation. |
 | Runtime stage | Final stage of the build. Inherits `TARGETPLATFORM` so the runtime base image matches the target arch. Contains only what is needed to run the binary. |
-| `musl` target | Rust target triple `${TARGETARCH}-unknown-linux-musl`, where `TARGETARCH` is `amd64` or `arm64`. Produces a statically-linked binary that requires no libc at runtime. |
+| `musl` target | Rust target triple. BuildKit's `TARGETARCH` is mapped to the corresponding Rust triple inside the Dockerfile: `amd64` → `x86_64-unknown-linux-musl`, `arm64` → `aarch64-unknown-linux-musl`. The mapping is computed once and written to `/tmp/rt.env`; subsequent `RUN` steps `. /tmp/rt.env` to read `RUST_TARGET`. Produces a statically-linked binary that requires no libc at runtime. |
 | `BUILDPLATFORM` | BuildKit-provided automatic build arg set to the architecture of the builder host. Used on the `FROM` line of the builder stage so native compilation tools run natively; only the Rust compiler emits cross-compiled artifacts. |
 | `TARGETPLATFORM` / `TARGETARCH` | BuildKit-provided automatic build args set to the architecture the produced image is for. The musl target triple is derived from `TARGETARCH`. |
 | `nobody` | Linux uid 65534. The image's runtime user. Created via a minimal `/etc/passwd` line injected into the runtime stage. |
@@ -104,7 +104,7 @@ Provide a reproducible OCI image that:
 
 ### Constraints
 
-- **CON-101**: Builder base image is `rust:1.85-alpine` (pinned; matches `rust-version` in `Cargo.toml`), pinned to `--platform=$BUILDPLATFORM`.
+- **CON-101**: Builder base image is `rust:1.96.1-alpine3.24` (pinned; matches `rust-version` in `Cargo.toml`), pinned to `--platform=$BUILDPLATFORM`.
 - **CON-102**: Runtime base image is `alpine:3.20` (pinned, not `:latest`), pinned to `--platform=$TARGETPLATFORM`.
 - **CON-103**: Supported architectures: `linux/amd64` and `linux/arm64`. Other architectures are out of scope (see Section 7).
 - **CON-104**: No new toolchain in the repo beyond `docker` (or `docker buildx`) ≥ 24.0. No `cargo-chef`, no `sccache`, no `cross` in v1.
@@ -173,7 +173,8 @@ If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_
 
 | Step | Purpose | Cache key |
 |---|---|---|
-| `FROM --platform=$BUILDPLATFORM rust:1.85-alpine AS builder` | Base with stable Rust, running natively on the builder host | `rust:1.85-alpine` digest (implicit) |
+| `FROM --platform=$BUILDPLATFORM rust:1.96.1-alpine3.24 AS builder` | Base with stable Rust, running natively on the builder host | `rust:1.96.1-alpine3.24` digest (implicit) |
+| `RUN case "${TARGETARCH}" in amd64) ... arm64) ... esac && rustup target add ...` | Map BuildKit's `TARGETARCH` to the Rust musl target triple and add it to the toolchain. Writes the resolved triple to `/tmp/rt.env`. | stable per arch; rebuilt when `TARGETARCH` changes |
 | `ARG TARGETARCH` | Lift BuildKit's auto-arg so the rest of the stage can reference it | implicit; stable per build |
 | `RUN rustup target add ${TARGETARCH}-unknown-linux-musl` | Install the musl stdlib for the requested target arch | invalidated when `TARGETARCH` changes |
 | `RUN apk add --no-cache musl-dev` | C runtime headers for the musl target | `apk add` layer; stable |
@@ -291,7 +292,7 @@ Secrets in image layers are world-readable to anyone who can `docker pull`. The 
 
 ### Technology Platform Dependencies
 
-- **PLT-101**: Rust stable ≥ 1.85 (provided by `rust:1.85-alpine`).
+- **PLT-101**: Rust stable ≥ 1.96.1 (provided by `rust:1.96.1-alpine3.24`).
 - **PLT-102**: Alpine Linux 3.20 musl libc (provided by `alpine:3.20`).
 
 ### Compliance Dependencies
