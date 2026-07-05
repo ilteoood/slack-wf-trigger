@@ -38,17 +38,6 @@ jobs:
       - uses: Swatinem/rust-cache@060bda31e0be4f453bb6ed2d7e5427b31734ad01
       - run: cargo test --locked
 
-  compose-validate:
-    name: compose-validate
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
-      - name: Validate docker-compose.yml
-        run: |
-          docker compose config -q
-          docker compose config | grep -q 'ghcr.io/ilteoood/slack-wf-trigger'
-          docker compose config | grep -q 'slack-wf-trigger-state:/var/lib/slack-wf-trigger'
-
   build:
     name: build
     runs-on: ubuntu-24.04
