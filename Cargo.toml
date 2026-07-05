@@ -2,7 +2,7 @@
 name = "slack-wf-trigger"
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.96"
 description = "Watch Slack channels for messages matching text patterns and execute shell commands"
 license = "MIT"
 publish = false

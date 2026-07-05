@@ -65,10 +65,10 @@ pub async fn run(args: RunArgs) -> Result<()> {
 
     let workdir = config::config_dir(&args.config_path);
     let mut store = CursorStore::load(&workdir)?;
-    if let Some(parent) = store.path().parent() {
-        if !parent.exists() {
-            std::fs::create_dir_all(parent).ok();
-        }
+    if let Some(parent) = store.path().parent()
+        && !parent.exists()
+    {
+        std::fs::create_dir_all(parent).ok();
     }
 
     let shutdown = Arc::new(Notify::new());
