@@ -23,7 +23,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
 
-      - name: Build and test binary
+      - name: Build and test binary (x86_64 musl)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: houseabsolute/actions-rust-cross@77a5caf54b78a8feb5c1d8d38744355e9c9b06aa
+        with:
+          command: both
+          target: ${{ matrix.target }}
+          args: "--release"
+          strip: true
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+
+      - name: Build and test binary (aarch64 musl)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
         uses: houseabsolute/actions-rust-cross@77a5caf54b78a8feb5c1d8d38744355e9c9b06aa
         with:
           command: both
