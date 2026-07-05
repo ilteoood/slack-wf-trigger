@@ -1,10 +1,10 @@
 ---
 title: Docker Image — Specification
-version: 0.3.0
+version: 0.4.0
 date_created: 2026-07-05
 last_updated: 2026-07-05
 owner: ilteoood
-tags: [tool, docker, distribution, slack-wf-trigger, multi-arch, compose]
+tags: [tool, docker, distribution, slack-wf-trigger, multi-arch, compose, ci]
 ---
 
 # Introduction
@@ -36,6 +36,7 @@ Provide a reproducible OCI image that:
 - Runtime contract: env vars, default config path, default cursors path, user, exposed signal handling.
 - Image versioning aligned with Cargo crate version.
 - Multi-arch manifest (image index) published to the registry.
+- GitHub Actions workflows for CI (PR builds + lint + test + scan) and release (`v*.*.*` tag publish to `ghcr.io`).
 - `docker buildx build`, `docker compose`, and `docker run` examples in the README.
 
 **Out of scope (v1):**
@@ -45,8 +46,8 @@ Provide a reproducible OCI image that:
 - Auto-update of the image (watchtower, etc.).
 - SBOM / SLSA provenance attestation.
 - Cosign signature.
-- Release pipeline automation (manual `docker buildx build --push` for v1; GH Actions publishes in v2).
 - Compose overrides for dev (hot-reload, source mounts, etc.).
+- Cross-repo release automation (dependabot, release-please).
 
 ### Audience
 
@@ -86,6 +87,10 @@ Provide a reproducible OCI image that:
 - **REQ-111b**: The compose file shall mount `rules.json` from the host (default `./rules.json`) read-only into `/etc/slack-wf-trigger/rules.json`, and shall mount a named volume `slack-wf-trigger-state` at `/var/lib/slack-wf-trigger` to persist the cursors file. `SLACK_WF_TRIGGER_CURSORS_PATH` shall be set to `/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` so config and state live on different filesystems.
 - **REQ-111c**: The compose file shall declare `restart: unless-stopped`, `read_only: false` on the state volume mount only, and shall not require the operator to write any `secrets:` block; `SLACK_USER_TOKEN` is read from the operator's environment via `${SLACK_USER_TOKEN}` interpolation.
 - **REQ-111d**: The compose file shall be syntactically valid for both Compose Spec (`docker compose config`) and legacy Compose v2 (`docker-compose config`); verified by `docker compose config -q` returning exit 0.
+- **REQ-115**: A CI workflow (`.github/workflows/ci.yml`) shall run on every `push` to `main` and on every PR against `main`. The workflow shall: check out the repo, set up BuildKit-compatible Docker, run `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`, validate `docker-compose.yml` via `docker compose config -q`, and run `docker buildx build --platform linux/amd64,linux/arm64 --load` followed by `trivy image` against each per-arch image. All checks must pass before the PR can be merged.
+- **REQ-116**: A release workflow (`.github/workflows/release.yml`) shall trigger on every `v*.*.*` tag push. It shall log in to `ghcr.io` using the workflow's `GITHUB_TOKEN`, derive `VERSION` from the tag (stripping the leading `v`), run `docker buildx build --platform linux/amd64,linux/arm64 --push` with tags `ghcr.io/ilteoood/slack-wf-trigger:${VERSION}` and `ghcr.io/ilteoood/slack-wf-trigger:latest`, and emit a GitHub Release with the image digest in the notes. Prerelease tags matching `v*.*.*-*` (e.g. `v0.3.0-rc.1`) shall push only the versioned tag and shall NOT update `:latest`; the matching GitHub Release shall be marked as a prerelease.
+- **REQ-117**: Both workflows shall pin third-party GitHub Actions by full-length commit SHA (not floating tags). The buildx action, setup-buildx-action, setup-qemu-action, and login-action versions shall be recorded in `requirements.yml` or equivalent pinned references inside the workflow files.
+- **REQ-118**: The release workflow shall fail loudly if the Cargo crate version in `Cargo.toml` does not equal the pushed image tag. Drift is detected by reading `Cargo.toml` via `yq` (or grep) and comparing to `${VERSION}`; mismatch exits non-zero.
 - **REQ-112**: A `docker buildx build` from a clean checkout shall complete in under 10 minutes on a cold cache on a developer laptop, and in under 90 seconds with warm dependency cache. Achieved by ordering `COPY` so that `Cargo.toml` and `Cargo.lock` are copied before `src/`, and by pinning `--platform=$BUILDPLATFORM` on the builder so cross-compilation skips QEMU.
 - **REQ-113**: Compressed image size shall be under 50 MB per-arch. Achieved by `alpine:3.20` (~5 MB) + static binary (~3 MB stripped) + ca-certs (~0.5 MB) + `/bin/sh` (~0.1 MB). The image index adds negligible overhead beyond the sum of its per-arch images.
 
@@ -104,6 +109,8 @@ Provide a reproducible OCI image that:
 - **CON-103**: Supported architectures: `linux/amd64` and `linux/arm64`. Other architectures are out of scope (see Section 7).
 - **CON-104**: No new toolchain in the repo beyond `docker` (or `docker buildx`) ≥ 24.0. No `cargo-chef`, no `sccache`, no `cross` in v1.
 - **CON-105**: The Dockerfile shall use `Dockerfile 1.7` syntax. `# syntax=docker/dockerfile:1.7` is the first line.
+- **CON-106**: CI runners shall be GitHub-hosted `ubuntu-24.04` (provides Docker ≥ 24.0 and BuildKit). Self-hosted runners are out of scope.
+- **CON-107**: CI and release workflows shall authenticate to `ghcr.io` exclusively via the workflow's `GITHUB_TOKEN`. No long-lived PATs shall be committed or required as secrets.
 
 ### Guidelines
 
@@ -208,14 +215,18 @@ If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_
 - **AC-110**: `docker scan slack-wf-trigger:dev` (or `trivy image`) on either per-arch image reports no critical CVEs from the Alpine base layer beyond the standard Alpine CVE cycle, and zero CVEs attributable to `slack-wf-trigger`'s own dependencies.
 - **AC-111**: `docker compose config -q` exits 0 against the shipped `docker-compose.yml` and reports a single service `slack-wf-trigger` with the image reference `ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.3.0}`, a read-only `./rules.json:/etc/slack-wf-trigger/rules.json:ro` mount, a `slack-wf-trigger-state:/var/lib/slack-wf-trigger` named volume, and `SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` in the environment.
 - **AC-112**: `docker compose up -d` followed by `docker compose exec slack-wf-trigger --help` exits 0 on the host's native arch and the cursors volume `slack-wf-trigger-state` is created and listed by `docker volume ls`.
+- **AC-113**: Pushing a commit to `feature/*` opens a PR; the CI workflow's `ci / build` job reports the multi-arch build as `success`, the `ci / lint` job reports `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test` as `success`, and the `ci / compose-validate` job reports `docker compose config -q` exit 0. A bad PR (e.g. `cargo fmt` drift or a broken compose mount) is blocked.
+- **AC-114**: Pushing the tag `v0.3.0` produces: (a) an image `ghcr.io/ilteoood/slack-wf-trigger:0.3.0` listed by `docker buildx imagetools inspect` with both `linux/amd64` and `linux/arm64`; (b) an image `ghcr.io/ilteoood/slack-wf-trigger:latest` pointing to the same manifest list; (c) a GitHub Release named `0.3.0` (not marked prerelease) whose body contains the multi-arch image index digest.
+- **AC-115**: Pushing the tag `v0.4.0-rc.1` produces an image `ghcr.io/ilteoood/slack-wf-trigger:0.4.0-rc.1` but does NOT update `:latest`. The GitHub Release is marked as a prerelease.
+- **AC-116**: Pushing a tag whose version does not match the Cargo crate version in `Cargo.toml` fails the release workflow before any image is pushed (per REQ-118).
 
 ## 6. Test Automation Strategy
 
-- **Local sanity**: `docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .` after every change to `Cargo.toml`, `Cargo.lock`, or `Dockerfile`. Time the build. On an `amd64`-only dev machine, `docker buildx build --platform linux/amd64 -t slack-wf-trigger:dev .` is acceptable for fast iteration; the full matrix runs in CI (planned v2).
+- **Local sanity**: `docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .` after every change to `Cargo.toml`, `Cargo.lock`, or `Dockerfile`. Time the build. On an `amd64`-only dev machine, `docker buildx build --platform linux/amd64 -t slack-wf-trigger:dev .` is acceptable for fast iteration; the full matrix runs in CI.
 - **Smoke test (manual, one-shot)**: `docker run --rm -e SLACK_USER_TOKEN=$TOKEN -v $(pwd)/example-rules.json:/etc/slack-wf-trigger/rules.json slack-wf-trigger:dev --help` should print help and exit 0 (binary reads `--help` flag without touching Slack). Repeat with `--platform linux/arm64` to exercise the arm64 image.
 - **Integration test (manual)**: a rule whose `command` is `echo $SLACK_WF_TRIGGER_TS > /tmp/last_ts` proves that env-var injection still works inside the container.
-- **CI (planned v2)**: GitHub Actions job that builds the image on PR via `docker buildx build --platform linux/amd64,linux/arm64`, then runs `trivy image` and `docker run --rm <image> --help` as required checks.
-- **Release publish (planned v2)**: GitHub Actions release job triggered by a `v*.*.*` tag, builds the image index, pushes to `ghcr.io/ilteoood/slack-wf-trigger:<version>` and `:latest`. v1 publishing is manual via `docker buildx build --push --platform ...`.
+- **CI (`.github/workflows/ci.yml`)**: runs on `push` to `main` and every PR against `main`. Three required jobs: `lint` (`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`), `test` (`cargo test`), `compose-validate` (`docker compose config -q`), and `build` (`docker buildx build --platform linux/amd64,linux/arm64 --load` + `trivy image` per-arch). Per REQ-115.
+- **Release publish (`.github/workflows/release.yml`)**: triggers on `v*.*.*` tag push. Verifies Cargo crate version matches tag (REQ-118), then `docker buildx build --platform linux/amd64,linux/arm64 --push` to `ghcr.io/ilteoood/slack-wf-trigger:${VERSION}` and `:latest` (non-prerelease tags only), then creates a GitHub Release with the image digest. Per REQ-116.
 
 ## 7. Rationale & Context
 
@@ -246,6 +257,10 @@ Putting the cursors file alongside the config file is awkward once the config is
 ### Why no `cargo-chef` in v1
 
 `cargo-chef` is a 30-line diff in the Dockerfile for what `Cargo.toml` dependency-cache invalidation already gives us. The two-pass "fake `main.rs`" trick is functionally equivalent for a project this size. Re-evaluate if a CI rebuild ever exceeds the 90 s warm-budget from REQ-112.
+
+### Why GH Actions on `ubuntu-24.04` with `GITHUB_TOKEN`
+
+GitHub-hosted runners eliminate the runner-maintenance tax (per CON-106). `ubuntu-24.04` ships Docker ≥ 24.0 and BuildKit, satisfying CON-104 and the `# syntax=docker/dockerfile:1.7` line. `GITHUB_TOKEN` is auto-injected and has `packages: write` for `ghcr.io` push on tag workflows — no PAT rotation, no leaked secrets (per CON-107). The trade-off is runner-minute cost, which is acceptable for a single-arch matrix of this size.
 
 ### Why no `SLACK_USER_TOKEN` default
 
@@ -355,7 +370,7 @@ A change to the Dockerfile, `.dockerignore`, or anything in `src/` or `Cargo.tom
 - `USER` is `nobody` for every per-arch image (AC-102).
 - `ENTRYPOINT` is `[/slack-wf-trigger]` exec form for every per-arch image (AC-103).
 - `SSL_CERT_FILE` is set to a path inside the image that exists at runtime (AC-109).
-- Any change to `Cargo.toml` without a corresponding `Cargo.lock` update fails CI (planned v2; manual check in v1).
+- Any change to `Cargo.toml` without a corresponding `Cargo.lock` update fails CI's `test` job.
 
 ## 11. Related Specifications / Further Reading
 
@@ -369,4 +384,8 @@ A change to the Dockerfile, `.dockerignore`, or anything in `src/` or `Cargo.tom
 - Rust musl target (arm64) — https://doc.rust-lang.org/nightly/rustc/platform-support/aarch64-unknown-linux-musl.html
 - BuildKit multi-platform builds — https://docs.docker.com/build/building/multi-platform/
 - `docker buildx imagetools inspect` — https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/
+- GitHub Actions: publishing Docker images — https://docs.github.com/actions/publishing-packages/publishing-docker-images
+- `docker/build-push-action` — https://github.com/docker/build-push-action
+- `docker/login-action` — https://github.com/docker/login-action
+- `aquasecurity/trivy-action` — https://github.com/aquasecurity/trivy-action
 - `reqwest` rustls feature — https://docs.rs/reqwest
