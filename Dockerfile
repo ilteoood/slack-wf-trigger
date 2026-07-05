@@ -28,9 +28,7 @@ RUN . /tmp/rt.env \
 FROM --platform=$TARGETPLATFORM alpine:3.20
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /slack-wf-trigger /slack-wf-trigger
-RUN addgroup -g 65534 nobody \
-    && adduser -u 65534 -G nobody -D -H nobody \
-    && mkdir -p /etc/slack-wf-trigger /var/lib/slack-wf-trigger \
+RUN mkdir -p /etc/slack-wf-trigger /var/lib/slack-wf-trigger \
     && chown -R nobody:nobody /var/lib/slack-wf-trigger /etc/slack-wf-trigger
 USER nobody
 WORKDIR /var/lib/slack-wf-trigger

@@ -62,7 +62,7 @@ Provide a reproducible OCI image that:
 | `musl` target | Rust target triple. BuildKit's `TARGETARCH` is mapped to the corresponding Rust triple inside the Dockerfile: `amd64` → `x86_64-unknown-linux-musl`, `arm64` → `aarch64-unknown-linux-musl`. The mapping is computed once and written to `/tmp/rt.env`; subsequent `RUN` steps `. /tmp/rt.env` to read `RUST_TARGET`. Produces a statically-linked binary that requires no libc at runtime. |
 | `BUILDPLATFORM` | BuildKit-provided automatic build arg set to the architecture of the builder host. Used on the `FROM` line of the builder stage so native compilation tools run natively; only the Rust compiler emits cross-compiled artifacts. |
 | `TARGETPLATFORM` / `TARGETARCH` | BuildKit-provided automatic build args set to the architecture the produced image is for. The musl target triple is derived from `TARGETARCH`. |
-| `nobody` | Linux uid 65534. The image's runtime user. Created via a minimal `/etc/passwd` line injected into the runtime stage. |
+| `nobody` | Linux uid 65534. The image's runtime user. Provided by Alpine 3.20's pre-existing `/etc/passwd` entry (no creation step needed in the runtime stage). |
 | CA bundle | `/etc/ssl/certs/ca-certificates.crt` copied from the builder stage. Required for `reqwest` over `rustls` to validate the Slack Web API TLS chain. |
 | Pin | A specific image tag that does not move (e.g. `0.1.0`). Distinct from a floating tag (`latest`). |
 | Image index | An OCI manifest list (a.k.a. multi-arch manifest) that maps a single tag to one image per supported architecture. Pushed by `docker buildx build --platform ... --push`. |
@@ -96,7 +96,7 @@ Provide a reproducible OCI image that:
 
 ### Security Requirements
 
-- **SEC-101**: The binary shall not run as root. `USER nobody` is set in the runtime stage.
+- **SEC-101**: The binary shall not run as root. `USER nobody` is set in the runtime stage; Alpine 3.20's pre-existing `nobody` user (uid 65534) is used as-is, no `adduser`/`addgroup` step is required.
 - **SEC-102**: No secrets shall be baked into the image. `SLACK_USER_TOKEN` has no `ENV` default; the absence of the var makes the binary exit 1 at startup, per the main spec's REQ-010.
 - **SEC-103**: The base image shall be pinned by digest in CI builds. Local `docker build` may use the tag for ergonomics; release builds use `alpine:3.20@sha256:<digest>`.
 - **SEC-104**: The `:latest` tag shall not be the only pin in deployment. Operators are required to pin a specific version in compose / Kubernetes manifests; documented in the README.
@@ -192,7 +192,7 @@ If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_
 | `FROM --platform=$TARGETPLATFORM alpine:3.20` | Minimal base with `/bin/sh` (required per REQ-006 in the main spec), pinned to the target arch. |
 | `COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt` | CA bundle for `reqwest` over `rustls`. |
 | `COPY --from=builder /slack-wf-trigger /slack-wf-trigger` | The binary. |
-| `RUN addgroup -g 65534 nobody && adduser -u 65534 -G nobody -D -H nobody` | Create `nobody` user inside Alpine. (Alternative: copy a minimal `/etc/passwd` line from builder as in `listening-to`. Either is acceptable; this version is documented here.) |
+| (no-op: Alpine 3.20 ships `nobody` user and group with uid/gid 65534) | Use Alpine's pre-existing `nobody`; no creation step needed. The runtime stage's `USER nobody` directive binds to it directly. |
 | `RUN mkdir -p /etc/slack-wf-trigger /var/lib/slack-wf-trigger && chown -R nobody:nobody /var/lib/slack-wf-trigger /etc/slack-wf-trigger` | Mount points. |
 | `USER nobody` | Drop root. |
 | `WORKDIR /var/lib/slack-wf-trigger` | Default cwd. |
