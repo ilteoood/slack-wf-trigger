@@ -71,7 +71,11 @@ impl SlackApi {
 
     pub fn with_base(token: impl Into<String>, base: String) -> Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(format!("wf-trigger/{}", env!("CARGO_PKG_VERSION")))
+            .user_agent(format!(
+                "{}/{}",
+                env!("CARGO_PKG_NAME"),
+                env!("CARGO_PKG_VERSION")
+            ))
             .timeout(Duration::from_secs(30))
             .build()
             .context("failed to build HTTP client")?;

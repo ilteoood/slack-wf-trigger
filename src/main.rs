@@ -3,14 +3,14 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use wf_trigger::RunArgs;
+use slack_nf_trigger::RunArgs;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "wf-trigger",
+    name = "slack-nf-trigger",
     version,
     about = "Watch Slack channels for matching messages and run shell commands",
-    long_about = "wf-trigger polls a single Slack workspace via the Web API, evaluates incoming \
+    long_about = "slack-nf-trigger polls a single Slack workspace via the Web API, evaluates incoming \
 messages against a JSON rule list, and runs a configured shell command per match.\n\n\
 SECURITY: triggered commands are passed to `sh -c` with no sandboxing. The operator is \
 trusted. Do not run this as root or on a multi-user host.\n\n\
@@ -61,7 +61,7 @@ async fn main() -> ExitCode {
         slack_base_url: None,
     };
 
-    match wf_trigger::run(args).await {
+    match slack_nf_trigger::run(args).await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
             eprintln!("error: {e:#}");
