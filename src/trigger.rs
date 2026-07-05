@@ -157,14 +157,17 @@ pub async fn run_command(
         .arg(&rule.command)
         .current_dir(workdir)
         .env(
-            "WF_TRIGGER_CHANNEL",
+            "SLACK_WF_TRIGGER_CHANNEL",
             msg.channel_name.as_deref().unwrap_or(&msg.channel_id),
         )
-        .env("WF_TRIGGER_CHANNEL_ID", &msg.channel_id)
-        .env("WF_TRIGGER_USER", msg.user.clone().unwrap_or_default())
-        .env("WF_TRIGGER_TEXT", &msg.text)
-        .env("WF_TRIGGER_TS", &msg.ts)
-        .env("WF_TRIGGER_RULE_INDEX", rule.index.to_string())
+        .env("SLACK_WF_TRIGGER_CHANNEL_ID", &msg.channel_id)
+        .env(
+            "SLACK_WF_TRIGGER_USER",
+            msg.user.clone().unwrap_or_default(),
+        )
+        .env("SLACK_WF_TRIGGER_TEXT", &msg.text)
+        .env("SLACK_WF_TRIGGER_TS", &msg.ts)
+        .env("SLACK_WF_TRIGGER_RULE_INDEX", rule.index.to_string())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
@@ -374,7 +377,7 @@ mod tests {
             "general",
             "x",
             false,
-            "echo \"$WF_TRIGGER_TEXT|$WF_TRIGGER_CHANNEL|$WF_TRIGGER_CHANNEL_ID|$WF_TRIGGER_USER|$WF_TRIGGER_TS|$WF_TRIGGER_RULE_INDEX\" > env.log",
+            "echo \"$SLACK_WF_TRIGGER_TEXT|$SLACK_WF_TRIGGER_CHANNEL|$SLACK_WF_TRIGGER_CHANNEL_ID|$SLACK_WF_TRIGGER_USER|$SLACK_WF_TRIGGER_TS|$SLACK_WF_TRIGGER_RULE_INDEX\" > env.log",
         );
         let msg = MessageContext {
             channel_id: "C1".into(),

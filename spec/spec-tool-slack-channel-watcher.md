@@ -1,6 +1,6 @@
 ---
 title: Slack Channel Watcher — Specification
-version: 0.1.0
+version: 0.1.1
 date_created: 2026-07-05
 last_updated: 2026-07-05
 owner: ilteoood
@@ -9,7 +9,7 @@ tags: [tool, slack, automation, rust]
 
 # Introduction
 
-This document specifies a Rust command-line application, `wf-trigger`, that watches configured Slack channels for messages matching configured text patterns and executes configured shell commands when a match is observed. The application is the trigger counterpart to `listening-to`: instead of pushing state out to Slack, it pulls state in from Slack to drive local side effects (e.g. webhook calls, deployments, scripts).
+This document specifies a Rust command-line application, `slack-wf-trigger`, that watches configured Slack channels for messages matching configured text patterns and executes configured shell commands when a match is observed. The application is the trigger counterpart to `listening-to`: instead of pushing state out to Slack, it pulls state in from Slack to drive local side effects (e.g. webhook calls, deployments, scripts).
 
 The tool is intended to be a long-running single-workspace process running on a developer machine or small server.
 
@@ -56,21 +56,21 @@ Provide a single static binary that:
 | `ts` | Slack's per-message timestamp identifier; unique within a channel. |
 | Cursor | The newest `ts` the binary has fully processed in a channel; persisted to disk so restarts resume from there. |
 | Events API | Slack's HTTP webhook-based push channel; requires a public HTTPS endpoint. Out of scope for v1. |
-| Web API polling | Repeatedly calling `conversations.history` on a `tokio::time::interval`. Used by `wf-trigger`. |
-| User token | Slack token of form `xoxp-...` representing a human user. The only token `wf-trigger` uses. |
+| Web API polling | Repeatedly calling `conversations.history` on a `tokio::time::interval`. Used by `slack-wf-trigger`. |
+| User token | Slack token of form `xoxp-...` representing a human user. The only token `slack-wf-trigger` uses. |
 
 ## 3. Requirements, Constraints & Guidelines
 
 ### Functional Requirements
 
-- **REQ-001**: The binary shall load its rule list from a JSON file path provided via `--config <path>` CLI flag or `WF_TRIGGER_CONFIG` env var (CLI flag wins).
+- **REQ-001**: The binary shall load its rule list from a JSON file path provided via `--config <path>` CLI flag or `SLACK_WF_TRIGGER_CONFIG` env var (CLI flag wins).
 - **REQ-002**: The rule list shall be a JSON array. Each element must contain `channel` (string), `message` (string), `command` (string).
 - **REQ-003**: On startup the binary shall establish a Slack connection and begin receiving messages from the union of channels named in the rule list.
 - **REQ-004**: For every received message, the binary shall evaluate each rule whose `channel` matches the message's channel.
 - **REQ-005**: A rule matches when the rule's `message` value is a substring of the message's `text` (case-sensitive, after stripping Slack mrkdwn formatting). Optional `regex: true` per rule switches the rule to regex matching against `text`.
 - **REQ-006**: For each match, the binary shall spawn the rule's `command` via `sh -c` with the working directory set to the directory containing the config file.
-- **REQ-007**: The binary shall expose the originating message metadata to the command via environment variables: `WF_TRIGGER_CHANNEL`, `WF_TRIGGER_USER`, `WF_TRIGGER_TEXT`, `WF_TRIGGER_TS`, `WF_TRIGGER_RULE_INDEX`.
-- **REQ-008**: The binary shall persist per-channel cursors (`latest` `ts` per channel) to `<config-dir>/.wf-trigger.cursors.json` after every successful poll cycle. On startup the binary shall resume each channel from its persisted cursor. First run (no cursor file) shall fetch the most recent 100 messages per channel without triggering commands and seed the cursor.
+- **REQ-007**: The binary shall expose the originating message metadata to the command via environment variables: `SLACK_WF_TRIGGER_CHANNEL`, `SLACK_WF_TRIGGER_USER`, `SLACK_WF_TRIGGER_TEXT`, `SLACK_WF_TRIGGER_TS`, `SLACK_WF_TRIGGER_RULE_INDEX`.
+- **REQ-008**: The binary shall persist per-channel cursors (`latest` `ts` per channel) to `<config-dir>/.slack-wf-trigger.cursors.json` after every successful poll cycle. On startup the binary shall resume each channel from its persisted cursor. First run (no cursor file) shall fetch the most recent 100 messages per channel without triggering commands and seed the cursor.
 - **REQ-009**: The binary shall emit a structured log line on every: rule match, command spawn, command exit (with exit code, duration, stdout/stderr tail).
 - **REQ-010**: The binary shall exit non-zero on startup if the config file is missing, malformed, or references no resolvable channels.
 - **REQ-011**: When a message matches at least one rule, the binary shall add a `thumbsup` reaction to that message **before** spawning the first matching command. Failure to add the reaction shall be logged but shall not block command execution.
@@ -104,13 +104,13 @@ Provide a single static binary that:
 ### CLI
 
 ```
-wf-trigger --config /etc/wf-trigger/rules.json
+slack-wf-trigger --config /etc/slack-wf-trigger/rules.json
 ```
 
 | Flag | Env | Default | Purpose |
 |---|---|---|---|
-| `--config <PATH>` | `WF_TRIGGER_CONFIG` | none (required) | Path to the JSON rule list. |
-| `--poll-interval <SECS>` | `WF_TRIGGER_POLL_INTERVAL` | `10` | Seconds between polls per channel. Must be ≥ 1. |
+| `--config <PATH>` | `SLACK_WF_TRIGGER_CONFIG` | none (required) | Path to the JSON rule list. |
+| `--poll-interval <SECS>` | `SLACK_WF_TRIGGER_POLL_INTERVAL` | `10` | Seconds between polls per channel. Must be ≥ 1. |
 
 Exit codes:
 
@@ -141,7 +141,7 @@ Validation rules:
 
 ### Cursor File
 
-`<config-dir>/.wf-trigger.cursors.json`:
+`<config-dir>/.slack-wf-trigger.cursors.json`:
 
 ```json
 {
@@ -156,12 +156,12 @@ This is a `HashMap<ChannelId, LatestTs>`. Written atomically (write to `.tmp`, r
 
 | Var | Source |
 |---|---|
-| `WF_TRIGGER_CHANNEL` | Message channel name (resolved from id if available). |
-| `WF_TRIGGER_CHANNEL_ID` | Message channel id. |
-| `WF_TRIGGER_USER` | Message user id (or bot id if posted by a bot). |
-| `WF_TRIGGER_TEXT` | Raw `text` field of the message. |
-| `WF_TRIGGER_TS` | Message `ts`. |
-| `WF_TRIGGER_RULE_INDEX` | Zero-based index of the matched rule in the config array. |
+| `SLACK_WF_TRIGGER_CHANNEL` | Message channel name (resolved from id if available). |
+| `SLACK_WF_TRIGGER_CHANNEL_ID` | Message channel id. |
+| `SLACK_WF_TRIGGER_USER` | Message user id (or bot id if posted by a bot). |
+| `SLACK_WF_TRIGGER_TEXT` | Raw `text` field of the message. |
+| `SLACK_WF_TRIGGER_TS` | Message `ts`. |
+| `SLACK_WF_TRIGGER_RULE_INDEX` | Zero-based index of the matched rule in the config array. |
 
 The command inherits the parent process environment except that these six are added/overwritten.
 
@@ -219,7 +219,7 @@ The operator provisions a **user token only** (no app-level token, no Slack app 
 
 - **Latency** = poll interval. Default 10 s is acceptable for CI / webhook triggers. Sub-second latency is out of scope.
 - **Rate limits**: `conversations.history` is tier 3 (~50 req/min). With ≤ 5 watched channels and a 10 s interval, we use ~30 req/min — comfortably under the cap.
-- **Polling vs cron**: `listening-to` schedules its poll via cron. `wf-trigger` uses an in-process `tokio::time::interval` loop instead so that SIGINT drains in-flight commands before exiting, which cron cannot do cleanly.
+- **Polling vs cron**: `listening-to` schedules its poll via cron. `slack-wf-trigger` uses an in-process `tokio::time::interval` loop instead so that SIGINT drains in-flight commands before exiting, which cron cannot do cleanly.
 
 ### Why no hot reload
 
