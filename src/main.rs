@@ -3,14 +3,14 @@ use std::process::ExitCode;
 
 use clap::Parser;
 
-use slack_nf_trigger::RunArgs;
+use slack_wf_trigger::RunArgs;
 
 #[derive(Debug, Parser)]
 #[command(
-    name = "slack-nf-trigger",
+    name = "slack-wf-trigger",
     version,
     about = "Watch Slack channels for matching messages and run shell commands",
-    long_about = "slack-nf-trigger polls a single Slack workspace via the Web API, evaluates incoming \
+    long_about = "slack-wf-trigger polls a single Slack workspace via the Web API, evaluates incoming \
 messages against a JSON rule list, and runs a configured shell command per match.\n\n\
 SECURITY: triggered commands are passed to `sh -c` with no sandboxing. The operator is \
 trusted. Do not run this as root or on a multi-user host.\n\n\
@@ -19,12 +19,12 @@ groups:read, reactions:write, users:read. Optional: im:history, mpim:history, im
 mpim:read."
 )]
 struct Cli {
-    #[arg(long, env = "WF_TRIGGER_CONFIG", value_name = "PATH")]
+    #[arg(long, env = "SLACK_WF_TRIGGER_CONFIG", value_name = "PATH")]
     config: Option<PathBuf>,
 
     #[arg(
         long,
-        env = "WF_TRIGGER_POLL_INTERVAL",
+        env = "SLACK_WF_TRIGGER_POLL_INTERVAL",
         value_name = "SECS",
         default_value_t = 10,
         value_parser = clap::value_parser!(u64).range(1..)
@@ -48,7 +48,7 @@ async fn main() -> ExitCode {
         Some(p) => p,
         None => {
             eprintln!(
-                "error: missing --config <PATH> (or WF_TRIGGER_CONFIG env var); \
+                "error: missing --config <PATH> (or SLACK_WF_TRIGGER_CONFIG env var); \
                  nothing to do"
             );
             return ExitCode::from(1);
@@ -61,7 +61,7 @@ async fn main() -> ExitCode {
         slack_base_url: None,
     };
 
-    match slack_nf_trigger::run(args).await {
+    match slack_wf_trigger::run(args).await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
             eprintln!("error: {e:#}");

@@ -5,10 +5,10 @@ use tempfile::TempDir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use slack_nf_trigger::config::{self, Matcher, Rule};
-use slack_nf_trigger::cursors::CursorStore;
-use slack_nf_trigger::slack::{ChannelRef, SlackApi};
-use slack_nf_trigger::trigger;
+use slack_wf_trigger::config::{self, Matcher, Rule};
+use slack_wf_trigger::cursors::CursorStore;
+use slack_wf_trigger::slack::{ChannelRef, SlackApi};
+use slack_wf_trigger::trigger;
 
 fn rule(channel: &str, message: &str, regex: bool, command: &str, index: usize) -> Rule {
     let matcher = if regex {
@@ -31,7 +31,7 @@ fn write_config(dir: &Path, body: &str) -> std::path::PathBuf {
 }
 
 fn write_cursors(dir: &Path, body: &str) {
-    std::fs::write(dir.join(".slack-nf-trigger.cursors.json"), body).unwrap();
+    std::fs::write(dir.join(".slack-wf-trigger.cursors.json"), body).unwrap();
 }
 
 fn auth_test_response(user_id: &str) -> serde_json::Value {
@@ -532,7 +532,7 @@ async fn ac017_fresh_install_seeds_cursor_without_spawning_commands() {
         .await;
 
     let dir = TempDir::new().unwrap();
-    assert!(!dir.path().join(".slack-nf-trigger.cursors.json").exists());
+    assert!(!dir.path().join(".slack-wf-trigger.cursors.json").exists());
     let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
     let rules = vec![rule("general", "ping", false, "echo nope > out.log", 0)];
 

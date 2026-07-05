@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-pub const CURSOR_FILE_NAME: &str = ".slack-nf-trigger.cursors.json";
+pub const CURSOR_FILE_NAME: &str = ".slack-wf-trigger.cursors.json";
 
 pub type ChannelId = String;
 pub type LatestTs = String;
