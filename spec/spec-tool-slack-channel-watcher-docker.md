@@ -23,7 +23,7 @@ Provide a reproducible OCI image that:
 - Ships a minimal runtime image that contains only the binary, CA certificates, and `/bin/sh`.
 - Runs as a non-root user.
 - Persists the cursors file across container restarts via a Docker volume.
-- Publishes to GitHub Container Registry (`ghcr.io/ilteoood/slack-wf-trigger`).
+- Publishes to Docker Hub (`ilteoood/slack-wf-trigger`).
 
 ### Scope
 
@@ -36,7 +36,7 @@ Provide a reproducible OCI image that:
 - `docker-compose.yml` checked into the repo root as the recommended local-deployment entry point.
 - Runtime contract: env vars, default config path, default cursors path, user, exposed signal handling.
 - Image versioning aligned with Cargo crate version.
-- Multi-arch manifest (image index) published to `ghcr.io` on every push to `main`.
+- Multi-arch manifest (image index) published to Docker Hub (`ilteoood/slack-wf-trigger`) on every push to `main`.
 - GitHub Actions workflows: `pr.yml` (matrix cross-build + test on PRs) and `rust.yml` (push to `main`: matrix build + test, then multi-arch image publish).
 - `.github/dependabot.yml` for weekly Cargo dependency updates.
 - `docker buildx build`, `docker compose`, and `docker run` examples in the README.
@@ -84,12 +84,12 @@ Provide a reproducible OCI image that:
 - **REQ-108**: The default value of `SLACK_WF_TRIGGER_CONFIG` inside the image shall be `/etc/slack-wf-trigger/rules.json`. The runtime stage shall create `/etc/slack-wf-trigger` and `/var/lib/slack-wf-trigger` directories, owned by `nobody`.
 - **REQ-109**: The default value of `SLACK_WF_TRIGGER_POLL_INTERVAL` inside the image shall be `10`. The default value of `RUST_LOG` shall be `info`.
 - **REQ-110**: Tag scheme: image tags follow the Cargo crate version verbatim. v0.1.0 → `:0.1.0`. The mutable `:latest` tag tracks the newest release. Each tag resolves to an OCI image index listing one image per supported architecture. A short-SHA tag (`:abc1234`) is also pushed for traceability.
-- **REQ-111**: The image shall be published to `ghcr.io/ilteoood/slack-wf-trigger` as a multi-arch image index by the `rust.yml` workflow on every push to `main`. Manual publish uses `docker buildx build --platform linux/amd64,linux/arm64 --push -t ghcr.io/ilteoood/slack-wf-trigger:<tag> .` after staging per-arch binaries into `bin/`.
-- **REQ-111a**: A `docker-compose.yml` shall live at the repo root and expose a single service (`slack-wf-trigger`) that pulls `image: ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.5.0}`, wires the recommended volume + env layout, and runs as a non-root user (the image's `USER nobody`).
+- **REQ-111**: The image shall be published to Docker Hub as `ilteoood/slack-wf-trigger` (a multi-arch image index) by the `rust.yml` workflow on every push to `main`. Manual publish uses `docker buildx build --platform linux/amd64,linux/arm64 --push -t ilteoood/slack-wf-trigger:<tag> .` after staging per-arch binaries into `bin/`.
+- **REQ-111a**: A `docker-compose.yml` shall live at the repo root and expose a single service (`slack-wf-trigger`) that pulls `image: ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.5.0}`, wires the recommended volume + env layout, and runs as a non-root user (the image's `USER nobody`).
 - **REQ-111b**: The compose file shall mount `rules.json` from the host (default `./rules.json`) read-only into `/etc/slack-wf-trigger/rules.json`, and shall mount a named volume `slack-wf-trigger-state` at `/var/lib/slack-wf-trigger` to persist the cursors file. `SLACK_WF_TRIGGER_CURSORS_PATH` shall be set to `/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` so config and state live on different filesystems.
 - **REQ-111c**: The compose file shall declare `restart: unless-stopped`, `read_only: false` on the state volume mount only, and shall not require the operator to write any `secrets:` block; `SLACK_USER_TOKEN` is read from the operator's environment via `${SLACK_USER_TOKEN}` interpolation.
 - **REQ-115**: A PR workflow (`.github/workflows/pr.yml`) shall run on every pull request against `main`. It shall run `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`, and `cargo test --release` against the Rust targets `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` via `houseabsolute/actions-rust-cross`. All checks must pass before the PR can be merged.
-- **REQ-116**: A build-and-publish workflow (`.github/workflows/rust.yml`) shall run on every `push` to `main`. It shall: (1) run the same matrix cross-build and tests as `pr.yml`; (2) upload the per-arch binaries as workflow artifacts; (3) a `collect_binaries` job downloads artifacts and stages them as `bin/slack-wf-trigger-amd64` and `bin/slack-wf-trigger-arm64`; (4) a `docker_image` job runs `docker buildx build --platform linux/amd64,linux/arm64 --push` with tags `ghcr.io/ilteoood/slack-wf-trigger:${VERSION}` (Cargo version), `:latest`, and `:<short-sha>`. Auth uses `GITHUB_TOKEN`.
+- **REQ-116**: A build-and-publish workflow (`.github/workflows/rust.yml`) shall run on every `push` to `main`. It shall: (1) run the same matrix cross-build and tests as `pr.yml`; (2) upload the per-arch binaries as workflow artifacts; (3) a `collect_binaries` job downloads artifacts and stages them as `bin/slack-wf-trigger-amd64` and `bin/slack-wf-trigger-arm64`; (4) a `docker_image` job runs `docker buildx build --platform linux/amd64,linux/arm64 --push` with tags `ilteoood/slack-wf-trigger:${VERSION}` (Cargo version), `:latest`, and `:<short-sha>`. Auth uses the repo secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`.
 - **REQ-117**: All third-party GitHub Actions shall be pinned by full-length commit SHA (not floating tags). Action versions and SHAs shall be visible in the workflow files themselves.
 - **REQ-118**: A `.github/dependabot.yml` file shall configure weekly Cargo dependency updates.
 - **REQ-112**: A `docker buildx build` from a clean checkout shall complete in under 10 minutes on a cold cache on a developer laptop, and in under 90 seconds with warm dependency cache. Achieved by ordering `COPY` so that `Cargo.toml` and `Cargo.lock` are copied before `src/`, and by pinning `--platform=$BUILDPLATFORM` on the builder so cross-compilation skips QEMU.
@@ -111,7 +111,7 @@ Provide a reproducible OCI image that:
 - **CON-104**: No new toolchain in the repo beyond `docker` (or `docker buildx`) ≥ 24.0. No `cargo-chef`, no `sccache`, no `cross` in v1. Cross-compile is delegated to `houseabsolute/actions-rust-cross@v1`, which uses `cross-rs` internally.
 - **CON-105**: The Dockerfile shall use `Dockerfile 1.7` syntax. `# syntax=docker/dockerfile:1.7` is the first line.
 - **CON-106**: CI runners shall be GitHub-hosted `ubuntu-latest` (provides Docker ≥ 24.0 and BuildKit). Self-hosted runners are out of scope.
-- **CON-107**: CI and image-publish workflows shall authenticate to `ghcr.io` exclusively via the workflow's `GITHUB_TOKEN`. No long-lived PATs shall be committed or required as secrets.
+- **CON-107**: CI and image-publish workflows shall authenticate to Docker Hub using the repo secrets `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN`. The repo's workflow `permissions` block shall not include `packages: write` (Docker Hub auth uses repo secrets, not `GITHUB_TOKEN`).
 - **CON-108**: The Cargo toolchain used by CI is `rustc 1.96.1` (matches `rust-version` in `Cargo.toml`). The same toolchain version is installed via `dtolnay/rust-toolchain` for the `fmt + clippy` job and used implicitly by `actions-rust-cross` for the matrix builds.
 
 ### Guidelines
@@ -129,7 +129,7 @@ Provide a reproducible OCI image that:
 
 | Aspect | Value | Source |
 |---|---|---|
-| Image registry | `ghcr.io/ilteoood/slack-wf-trigger` | REQ-111 |
+| Image registry | Docker Hub: `ilteoood/slack-wf-trigger` (`docker.io/ilteoood/slack-wf-trigger`) | REQ-111 |
 | Tags | `<version>`, `:latest`, `:0.1.0-rc.1` | REQ-110 |
 | Platforms | `linux/amd64`, `linux/arm64` (via OCI image index) | REQ-103, REQ-104, REQ-111 |
 | Entrypoint | `["/slack-wf-trigger"]` | REQ-107 |
@@ -204,10 +204,10 @@ For local builds, the operator must invoke `./scripts/binary.sh amd64` and `./sc
 - **AC-108**: Triggered commands running inside the container can invoke `/bin/sh -c '...'` (per main spec REQ-006). Verifiable by adding a rule whose `command` is `echo $$` and observing the container's PID via the logs.
 - **AC-109**: A request to `https://slack.com/api/auth.test` from inside the running container succeeds on both architectures (verifies the CA bundle and `SSL_CERT_FILE` are correctly wired). Test: `docker exec <c> sh -c 'wget -qO- "$SLACK_USER_TOKEN" >/dev/null'` is NOT a valid test (no wget). Valid test: run any rule that calls Slack and confirm the Web API call succeeds.
 - **AC-110**: `docker scan slack-wf-trigger:dev` (or `trivy image`) on either per-arch image reports no critical CVEs from the Alpine base layer beyond the standard Alpine CVE cycle, and zero CVEs attributable to `slack-wf-trigger`'s own dependencies.
-- **AC-111**: `docker compose config -q` exits 0 against the shipped `docker-compose.yml` and reports a single service `slack-wf-trigger` with the image reference `ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.5.0}`, a read-only `./rules.json:/etc/slack-wf-trigger/rules.json:ro` mount, a `slack-wf-trigger-state:/var/lib/slack-wf-trigger` named volume, and `SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` in the environment.
+- **AC-111**: `docker compose config -q` exits 0 against the shipped `docker-compose.yml` and reports a single service `slack-wf-trigger` with the image reference `ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.5.0}`, a read-only `./rules.json:/etc/slack-wf-trigger/rules.json:ro` mount, a `slack-wf-trigger-state:/var/lib/slack-wf-trigger` named volume, and `SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` in the environment.
 - **AC-112**: `docker compose up -d` followed by `docker compose exec slack-wf-trigger --help` exits 0 on the host's native arch and the cursors volume `slack-wf-trigger-state` is created and listed by `docker volume ls`.
 - **AC-113**: Pushing a commit to `feature/*` opens a PR; the `pr.yml` workflow's `fmt_clippy` job reports `success` and every matrix entry of `build_and_test` reports `success`. A bad PR (e.g. `cargo fmt` drift, a failing test, or a cross-compile failure) is blocked.
-- **AC-114**: Pushing a commit to `main` triggers `rust.yml`. After completion: (a) `docker buildx imagetools inspect ghcr.io/ilteoood/slack-wf-trigger:${VERSION}` lists both `linux/amd64` and `linux/arm64`; (b) `ghcr.io/ilteoood/slack-wf-trigger:latest` points to the same manifest list; (c) `ghcr.io/ilteoood/slack-wf-trigger:<short-sha>` exists and points to the same manifest list.
+- **AC-114**: Pushing a commit to `main` triggers `rust.yml`. After completion: (a) `docker buildx imagetools inspect ilteoood/slack-wf-trigger:${VERSION}` lists both `linux/amd64` and `linux/arm64`; (b) `ilteoood/slack-wf-trigger:latest` points to the same manifest list; (c) `ilteoood/slack-wf-trigger:<short-sha>` exists and points to the same manifest list.
 
 ## 6. Test Automation Strategy
 
@@ -215,7 +215,7 @@ For local builds, the operator must invoke `./scripts/binary.sh amd64` and `./sc
 - **Smoke test (manual, one-shot)**: `docker run --rm -e SLACK_USER_TOKEN=$TOKEN -v $(pwd)/example-rules.json:/etc/slack-wf-trigger/rules.json slack-wf-trigger:dev --help` should print help and exit 0 (binary reads `--help` flag without touching Slack). Repeat with `--platform linux/arm64` to exercise the arm64 image.
 - **Integration test (manual)**: a rule whose `command` is `echo $SLACK_WF_TRIGGER_TS > /tmp/last_ts` proves that env-var injection still works inside the container.
 - **CI (`.github/workflows/pr.yml`)**: runs on every PR against `main`. Two jobs: `fmt_clippy` (`cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`), and `build_and_test` (matrix over `x86_64-unknown-linux-musl` and `aarch64-unknown-linux-musl` via `houseabsolute/actions-rust-cross`). Per REQ-115.
-- **CI + image publish (`.github/workflows/rust.yml`)**: runs on every `push` to `main`. `build` job runs the same matrix as `pr.yml` and uploads per-arch binaries as artifacts; `collect_binaries` stages them as `bin/slack-wf-trigger-${TARGETARCH}`; `docker_image` runs `docker buildx build --platform linux/amd64,linux/arm64 --push` to `ghcr.io/ilteoood/slack-wf-trigger:${VERSION}`, `:latest`, and `:<short-sha>`. Per REQ-116.
+- **CI + image publish (`.github/workflows/rust.yml`)**: runs on every `push` to `main`. `build` job runs the same matrix as `pr.yml` and uploads per-arch binaries as artifacts; `collect_binaries` stages them as `bin/slack-wf-trigger-${TARGETARCH}`; `docker_image` runs `docker buildx build --platform linux/amd64,linux/arm64 --push` to Docker Hub as `ilteoood/slack-wf-trigger:${VERSION}`, `:latest`, and `:<short-sha>`. Auth uses `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repo secrets. Per REQ-116.
 
 ## 7. Rationale & Context
 
@@ -229,7 +229,7 @@ Same reasoning as before: the main spec's REQ-006 mandates `sh -c` for triggered
 
 ### Why GH Actions on `ubuntu-latest` with `GITHUB_TOKEN`
 
-GitHub-hosted runners eliminate the runner-maintenance tax (per CON-106). `ubuntu-latest` ships Docker ≥ 24.0 and BuildKit, satisfying CON-104 and the `# syntax=docker/dockerfile:1.7` line. `GITHUB_TOKEN` is auto-injected and has `packages: write` for `ghcr.io` push in the image-publish workflow — no PAT rotation, no leaked secrets (per CON-107). The trade-off is runner-minute cost, which is acceptable for a two-arch matrix of this size.
+GitHub-hosted runners eliminate the runner-maintenance tax (per CON-106). `ubuntu-latest` ships Docker ≥ 24.0 and BuildKit, satisfying CON-104 and the `# syntax=docker/dockerfile:1.7` line. Docker Hub auth uses the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repo secrets (per CON-107); the workflow does not rely on `GITHUB_TOKEN` for image push. The trade-off is secret rotation, but a Docker Hub access token is scoped to a single account and trivially rotatable. The runner-minute cost is acceptable for a two-arch matrix of this size.
 
 ### Why image is published on every `main` push (no tag-driven release)
 
@@ -243,7 +243,7 @@ Secrets in image layers are world-readable to anyone who can `docker pull`. The 
 
 ### External Systems
 
-- **EXT-101**: GitHub Container Registry at `ghcr.io`. Auth via `GITHUB_TOKEN` (CI) or `docker login ghcr.io` (local).
+- **EXT-101**: Docker Hub at `docker.io`. Auth via the `DOCKERHUB_USERNAME` and `DOCKERHUB_TOKEN` repo secrets (CI) or `docker login` (local).
 - **EXT-102**: Docker Hub is not used in v1.
 
 ### Third-Party Services
@@ -279,7 +279,7 @@ Secrets in image layers are world-readable to anyone who can `docker pull`. The 
 ./scripts/binary.sh amd64
 ./scripts/binary.sh arm64
 docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .
-docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/ilteoood/slack-wf-trigger:0.5.0 --push .
+docker buildx build --platform linux/amd64,linux/arm64 -t ilteoood/slack-wf-trigger:0.5.0 --push .
 ```
 
 `./scripts/binary.sh` must be invoked for each arch before `docker buildx build` so that `bin/slack-wf-trigger-${TARGETARCH}` exists. `--platform` is mandatory for multi-arch: omitting it (or using the legacy `docker build`) produces a single-arch image for the builder host only and breaks the image-index contract. Use `docker buildx` exclusively; the repo's `Dockerfile` is authored for BuildKit (per CON-105).
@@ -312,7 +312,7 @@ docker run -d \
   -v $PWD/rules.json:/etc/slack-wf-trigger/rules.json:ro \
   -v slack-wf-trigger-state:/var/lib/slack-wf-trigger \
   -e SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json \
-  ghcr.io/ilteoood/slack-wf-trigger:0.5.0
+  ilteoood/slack-wf-trigger:0.5.0
 ```
 
 The `:0.5.0` tag resolves to an image index; Docker selects `linux/amd64` or `linux/arm64` based on the host. No `--platform` is needed in production.
