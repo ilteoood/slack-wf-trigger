@@ -6,6 +6,7 @@ tests/
 spec/
 *.md
 !README.md
+scripts/
 
 .vscode/
 .idea/
@@ -17,3 +18,5 @@ Thumbs.db
 .env
 .env.*
 *.local
+
+bin/

@@ -1,6 +1,6 @@
 services:
   slack-wf-trigger:
-    image: ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.3.0}
+    image: ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.5.0}
     container_name: slack-wf-trigger
     restart: unless-stopped
     environment:
