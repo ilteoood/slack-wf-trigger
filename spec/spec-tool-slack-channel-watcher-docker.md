@@ -1,10 +1,10 @@
 ---
 title: Docker Image — Specification
-version: 0.1.1
+version: 0.3.0
 date_created: 2026-07-05
 last_updated: 2026-07-05
 owner: ilteoood
-tags: [tool, docker, distribution, slack-wf-trigger]
+tags: [tool, docker, distribution, slack-wf-trigger, multi-arch, compose]
 ---
 
 # Introduction
@@ -29,23 +29,24 @@ Provide a reproducible OCI image that:
 
 **In scope:**
 
-- One architecture in v1: `linux/amd64`.
+- Two architectures: `linux/amd64` and `linux/arm64`.
 - Multi-stage `Dockerfile` checked into the repo root.
 - `.dockerignore` checked into the repo root.
+- `docker-compose.yml` checked into the repo root as the recommended local-deployment entry point.
 - Runtime contract: env vars, default config path, default cursors path, user, exposed signal handling.
 - Image versioning aligned with Cargo crate version.
-- `docker build` and `docker run` examples in the README.
+- Multi-arch manifest (image index) published to the registry.
+- `docker buildx build`, `docker compose`, and `docker run` examples in the README.
 
 **Out of scope (v1):**
 
-- Multi-arch builds (`linux/arm64`, `linux/arm/v7`) — see `ponytail:` note in Section 7.
-- Multi-arch manifests / image index.
-- `docker-compose.yml` (operator owns their compose setup).
+- Other architectures (`linux/arm/v7`, `linux/ppc64le`, `linux/s390x`).
 - Helm chart / Kubernetes manifests.
 - Auto-update of the image (watchtower, etc.).
 - SBOM / SLSA provenance attestation.
 - Cosign signature.
-- Release pipeline automation (manual `docker build && docker push` for v1; GH Actions publishes in v2).
+- Release pipeline automation (manual `docker buildx build --push` for v1; GH Actions publishes in v2).
+- Compose overrides for dev (hot-reload, source mounts, etc.).
 
 ### Audience
 
@@ -55,12 +56,15 @@ Provide a reproducible OCI image that:
 
 | Term | Definition |
 |---|---|
-| Builder stage | First stage of the multi-stage build. Compiles the Rust binary against a static musl target. |
-| Runtime stage | Final stage of the build. Contains only what is needed to run the binary. |
-| `musl` target | Rust target triple `x86_64-unknown-linux-musl`. Produces a statically-linked binary that requires no libc at runtime. |
+| Builder stage | First stage of the multi-stage build. Compiles the Rust binary against a static musl target for the target architecture. Runs natively via `BUILDPLATFORM` so QEMU is not invoked during compilation. |
+| Runtime stage | Final stage of the build. Inherits `TARGETPLATFORM` so the runtime base image matches the target arch. Contains only what is needed to run the binary. |
+| `musl` target | Rust target triple `${TARGETARCH}-unknown-linux-musl`, where `TARGETARCH` is `amd64` or `arm64`. Produces a statically-linked binary that requires no libc at runtime. |
+| `BUILDPLATFORM` | BuildKit-provided automatic build arg set to the architecture of the builder host. Used on the `FROM` line of the builder stage so native compilation tools run natively; only the Rust compiler emits cross-compiled artifacts. |
+| `TARGETPLATFORM` / `TARGETARCH` | BuildKit-provided automatic build args set to the architecture the produced image is for. The musl target triple is derived from `TARGETARCH`. |
 | `nobody` | Linux uid 65534. The image's runtime user. Created via a minimal `/etc/passwd` line injected into the runtime stage. |
 | CA bundle | `/etc/ssl/certs/ca-certificates.crt` copied from the builder stage. Required for `reqwest` over `rustls` to validate the Slack Web API TLS chain. |
 | Pin | A specific image tag that does not move (e.g. `0.1.0`). Distinct from a floating tag (`latest`). |
+| Image index | An OCI manifest list (a.k.a. multi-arch manifest) that maps a single tag to one image per supported architecture. Pushed by `docker buildx build --platform ... --push`. |
 | Runtime contract | The set of env vars, volume mount points, default paths, signal semantics, and exit codes the image guarantees. Operators rely on the contract; the image enforces it. |
 
 ## 3. Requirements, Constraints & Guidelines
@@ -69,17 +73,21 @@ Provide a reproducible OCI image that:
 
 - **REQ-101**: The repo shall contain a `Dockerfile` at the root that builds the `slack-wf-trigger` binary via a multi-stage build.
 - **REQ-102**: The repo shall contain a `.dockerignore` at the root that excludes `target/`, `.git/`, `tests/`, `spec/`, `*.md` other than `README.md`, and any local editor / OS metadata.
-- **REQ-103**: The builder stage shall compile the binary with the `x86_64-unknown-linux-musl` target, producing a statically linked executable named `slack-wf-trigger`.
-- **REQ-104**: The runtime stage shall inherit from `alpine:3.20` (pinned; not `:latest`). The binary is copied from the builder stage with mode `0755`.
+- **REQ-103**: The builder stage shall compile the binary with the musl target for the requested architecture (`${TARGETARCH}-unknown-linux-musl`, where `TARGETARCH` is `amd64` or `arm64`), producing a statically linked executable named `slack-wf-trigger`. The builder stage's `FROM` line shall pin `--platform=$BUILDPLATFORM` so compilation runs natively on the builder host.
+- **REQ-104**: The runtime stage shall inherit from `alpine:3.20` (pinned; not `:latest`) with `--platform=$TARGETPLATFORM`. The binary is copied from the builder stage with mode `0755`.
 - **REQ-105**: The runtime stage shall copy `/etc/ssl/certs/ca-certificates.crt` from the builder stage. The `SSL_CERT_FILE` env var shall be set to its path inside the image so `reqwest` over `rustls` validates Slack's TLS chain.
 - **REQ-106**: The runtime stage shall run as uid 65534 (`nobody`). The image shall not require `docker run -u 0`.
 - **REQ-107**: The `ENTRYPOINT` shall be the exec form `["/slack-wf-trigger"]`. No shell wrapper. SIGTERM from `docker stop` reaches the binary directly.
 - **REQ-108**: The default value of `SLACK_WF_TRIGGER_CONFIG` inside the image shall be `/etc/slack-wf-trigger/rules.json`. The runtime stage shall create `/etc/slack-wf-trigger` and `/var/lib/slack-wf-trigger` directories, owned by `nobody`.
 - **REQ-109**: The default value of `SLACK_WF_TRIGGER_POLL_INTERVAL` inside the image shall be `10`. The default value of `RUST_LOG` shall be `info`.
-- **REQ-110**: Tag scheme: image tags follow the Cargo crate version verbatim. v0.1.0 → `:0.1.0`. The mutable `:latest` tag tracks the newest release. Pre-release tags (`:0.2.0-rc.1`) are allowed.
-- **REQ-111**: The image shall be published to `ghcr.io/ilteoood/slack-wf-trigger`. Auth uses the `GITHUB_TOKEN` in CI; manual publish uses `docker login ghcr.io`.
-- **REQ-112**: A `docker build` from a clean checkout shall complete in under 10 minutes on a cold cache on a developer laptop, and in under 90 seconds with warm dependency cache. Achieved by ordering `COPY` so that `Cargo.toml` and `Cargo.lock` are copied before `src/`.
-- **REQ-113**: Compressed image size shall be under 50 MB. Achieved by `alpine:3.20` (~5 MB) + static binary (~3 MB stripped) + ca-certs (~0.5 MB) + `/bin/sh` (~0.1 MB).
+- **REQ-110**: Tag scheme: image tags follow the Cargo crate version verbatim. v0.1.0 → `:0.1.0`. The mutable `:latest` tag tracks the newest release. Pre-release tags (`:0.2.0-rc.1`) are allowed. Each tag resolves to an OCI image index listing one image per supported architecture.
+- **REQ-111**: The image shall be published to `ghcr.io/ilteoood/slack-wf-trigger` as a multi-arch image index. Auth uses the `GITHUB_TOKEN` in CI; manual publish uses `docker login ghcr.io`. Publish command is `docker buildx build --platform linux/amd64,linux/arm64 --push -t ghcr.io/ilteoood/slack-wf-trigger:<tag> .`
+- **REQ-111a**: A `docker-compose.yml` shall live at the repo root and expose a single service (`slack-wf-trigger`) that pulls `image: ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.3.0}`, wires the recommended volume + env layout, and runs as a non-root user (the image's `USER nobody`).
+- **REQ-111b**: The compose file shall mount `rules.json` from the host (default `./rules.json`) read-only into `/etc/slack-wf-trigger/rules.json`, and shall mount a named volume `slack-wf-trigger-state` at `/var/lib/slack-wf-trigger` to persist the cursors file. `SLACK_WF_TRIGGER_CURSORS_PATH` shall be set to `/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` so config and state live on different filesystems.
+- **REQ-111c**: The compose file shall declare `restart: unless-stopped`, `read_only: false` on the state volume mount only, and shall not require the operator to write any `secrets:` block; `SLACK_USER_TOKEN` is read from the operator's environment via `${SLACK_USER_TOKEN}` interpolation.
+- **REQ-111d**: The compose file shall be syntactically valid for both Compose Spec (`docker compose config`) and legacy Compose v2 (`docker-compose config`); verified by `docker compose config -q` returning exit 0.
+- **REQ-112**: A `docker buildx build` from a clean checkout shall complete in under 10 minutes on a cold cache on a developer laptop, and in under 90 seconds with warm dependency cache. Achieved by ordering `COPY` so that `Cargo.toml` and `Cargo.lock` are copied before `src/`, and by pinning `--platform=$BUILDPLATFORM` on the builder so cross-compilation skips QEMU.
+- **REQ-113**: Compressed image size shall be under 50 MB per-arch. Achieved by `alpine:3.20` (~5 MB) + static binary (~3 MB stripped) + ca-certs (~0.5 MB) + `/bin/sh` (~0.1 MB). The image index adds negligible overhead beyond the sum of its per-arch images.
 
 ### Security Requirements
 
@@ -91,9 +99,9 @@ Provide a reproducible OCI image that:
 
 ### Constraints
 
-- **CON-101**: Builder base image is `rust:1.85-alpine` (pinned; matches `rust-version` in `Cargo.toml`).
-- **CON-102**: Runtime base image is `alpine:3.20` (pinned, not `:latest`).
-- **CON-103**: Single architecture for v1: `linux/amd64`. `linux/arm64` deferred (see Section 7).
+- **CON-101**: Builder base image is `rust:1.85-alpine` (pinned; matches `rust-version` in `Cargo.toml`), pinned to `--platform=$BUILDPLATFORM`.
+- **CON-102**: Runtime base image is `alpine:3.20` (pinned, not `:latest`), pinned to `--platform=$TARGETPLATFORM`.
+- **CON-103**: Supported architectures: `linux/amd64` and `linux/arm64`. Other architectures are out of scope (see Section 7).
 - **CON-104**: No new toolchain in the repo beyond `docker` (or `docker buildx`) ≥ 24.0. No `cargo-chef`, no `sccache`, no `cross` in v1.
 - **CON-105**: The Dockerfile shall use `Dockerfile 1.7` syntax. `# syntax=docker/dockerfile:1.7` is the first line.
 
@@ -114,6 +122,7 @@ Provide a reproducible OCI image that:
 |---|---|---|
 | Image registry | `ghcr.io/ilteoood/slack-wf-trigger` | REQ-111 |
 | Tags | `<version>`, `:latest`, `:0.1.0-rc.1` | REQ-110 |
+| Platforms | `linux/amd64`, `linux/arm64` (via OCI image index) | REQ-103, REQ-104, REQ-111 |
 | Entrypoint | `["/slack-wf-trigger"]` | REQ-107 |
 | Default user | `nobody` (uid 65534) | REQ-106 |
 | Working directory | `/var/lib/slack-wf-trigger` | REQ-108 |
@@ -141,6 +150,7 @@ Provide a reproducible OCI image that:
 |---|---|---|
 | `/etc/slack-wf-trigger` | Rules JSON. Read-only is OK in steady state; binary does not write here. Bind-mount or named volume. | Operator |
 | `/var/lib/slack-wf-trigger` | Recommended cursors file location when `SLACK_WF_TRIGGER_CURSORS_PATH` is overridden. | Operator |
+| Compose state volume | Named volume `slack-wf-trigger-state` mounted at `/var/lib/slack-wf-trigger`. Created by `docker compose up` on first run; persists across `down`/`up` cycles. | REQ-111b |
 
 If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_PATH` override), the cursors file is written to `/etc/slack-wf-trigger/.slack-wf-trigger.cursors.json`. The binary does not require `/etc/slack-wf-trigger` to be writable unless the operator uses the default. Recommended setup: override `SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` and mount `/var/lib/slack-wf-trigger` as a named volume.
 
@@ -156,20 +166,22 @@ If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_
 
 | Step | Purpose | Cache key |
 |---|---|---|
-| `FROM rust:1.85-alpine` | Base with stable Rust | `rust:1.85-alpine` digest (implicit) |
+| `FROM --platform=$BUILDPLATFORM rust:1.85-alpine AS builder` | Base with stable Rust, running natively on the builder host | `rust:1.85-alpine` digest (implicit) |
+| `ARG TARGETARCH` | Lift BuildKit's auto-arg so the rest of the stage can reference it | implicit; stable per build |
+| `RUN rustup target add ${TARGETARCH}-unknown-linux-musl` | Install the musl stdlib for the requested target arch | invalidated when `TARGETARCH` changes |
 | `RUN apk add --no-cache musl-dev` | C runtime headers for the musl target | `apk add` layer; stable |
 | `WORKDIR /build` | Avoid baking `/root` ownership | layer metadata |
 | `COPY Cargo.toml Cargo.lock ./` | Dependency manifest | invalidated on Cargo.toml change |
-| `RUN mkdir -p src && echo 'fn main(){}' > src/main.rs && cargo build --release && rm -rf src` | Resolve & cache dependencies | invalidated on Cargo.toml change; reused across source-only changes |
+| `RUN mkdir -p src && echo 'fn main(){}' > src/main.rs && cargo build --release --target ${TARGETARCH}-unknown-linux-musl && rm -rf src target/${TARGETARCH}-unknown-linux-musl/release/deps/slack_wf_trigger*` | Resolve & cache dependencies; remove the fake-main artifact so the next compile rebuilds it | invalidated on Cargo.toml change; reused across source-only changes and across archs (Cargo target dir is keyed per arch) |
 | `COPY src ./src` | Real sources | invalidated on any source change |
-| `RUN touch src/main.rs && cargo build --release` | Final compile | rebuilt on source change |
-| `RUN cp target/release/slack-wf-trigger /slack-wf-trigger && strip /slack-wf-trigger` | Strip + relocate | rebuilt on final compile |
+| `RUN touch src/main.rs && cargo build --release --target ${TARGETARCH}-unknown-linux-musl` | Final compile | rebuilt on source change |
+| `RUN cp target/${TARGETARCH}-unknown-linux-musl/release/slack-wf-trigger /slack-wf-trigger && strip /slack-wf-trigger` | Strip + relocate | rebuilt on final compile |
 
 ### Image Layers (Runtime Stage)
 
 | Step | Purpose |
 |---|---|
-| `FROM alpine:3.20` | Minimal base with `/bin/sh` (required per REQ-006 in the main spec). |
+| `FROM --platform=$TARGETPLATFORM alpine:3.20` | Minimal base with `/bin/sh` (required per REQ-006 in the main spec), pinned to the target arch. |
 | `COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt` | CA bundle for `reqwest` over `rustls`. |
 | `COPY --from=builder /slack-wf-trigger /slack-wf-trigger` | The binary. |
 | `RUN addgroup -g 65534 nobody && adduser -u 65534 -G nobody -D -H nobody` | Create `nobody` user inside Alpine. (Alternative: copy a minimal `/etc/passwd` line from builder as in `listening-to`. Either is acceptable; this version is documented here.) |
@@ -182,24 +194,28 @@ If the operator uses the default cursors location (no `SLACK_WF_TRIGGER_CURSORS_
 
 ## 5. Acceptance Criteria
 
-- **AC-101**: `docker build -t slack-wf-trigger:dev .` from a clean checkout produces a runnable image in under 10 minutes cold, under 90 s warm.
-- **AC-102**: `docker inspect --format='{{.Config.User}}' slack-wf-trigger:dev` prints `nobody` (or `65534`).
-- **AC-103**: `docker inspect --format='{{.Config.Entrypoint}}' slack-wf-trigger:dev` prints `[/slack-wf-trigger]`.
-- **AC-104**: `docker image ls slack-wf-trigger:dev` reports a size under 50 MB.
-- **AC-105**: Given a rules JSON mounted at `/etc/slack-wf-trigger/rules.json` and `SLACK_USER_TOKEN` set, `docker run --rm slack-wf-trigger:dev` connects to Slack and emits the expected startup logs within 5 s. If `SLACK_USER_TOKEN` is unset, the process exits non-zero within 5 s with a clear error message (per main spec REQ-010).
+- **AC-101**: `docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .` from a clean checkout produces a runnable image index in under 10 minutes cold, under 90 s warm.
+- **AC-102**: `docker inspect --format='{{.Config.User}}' slack-wf-trigger:dev` prints `nobody` (or `65534`) for every per-arch image in the index.
+- **AC-103**: `docker inspect --format='{{.Config.Entrypoint}}' slack-wf-trigger:dev` prints `[/slack-wf-trigger]` for every per-arch image in the index.
+- **AC-104**: `docker image ls slack-wf-trigger:dev` reports a size under 50 MB per arch.
+- **AC-104a**: `docker buildx imagetools inspect slack-wf-trigger:dev` lists both `linux/amd64` and `linux/arm64` in the manifest list.
+- **AC-104b**: `docker run --rm --platform linux/arm64 slack-wf-trigger:dev --help` exits 0 on an `amd64` host (cross-arch run via QEMU at runtime only), and the same command without `--platform` on an `arm64` host exits 0 natively.
+- **AC-105**: Given a rules JSON mounted at `/etc/slack-wf-trigger/rules.json` and `SLACK_USER_TOKEN` set, `docker run --rm slack-wf-trigger:dev` connects to Slack and emits the expected startup logs within 5 s on either architecture. If `SLACK_USER_TOKEN` is unset, the process exits non-zero within 5 s with a clear error message (per main spec REQ-010).
 - **AC-106**: A second `docker run` of the same image with the same cursors file mounted resumes from the persisted cursor and does not re-trigger commands for messages already processed (per main spec AC-002).
 - **AC-107**: `docker stop` of a running container exits with code 0 within 10 s of SIGTERM. The cursors file on the mounted volume is flushed before exit (per main spec AC-009).
 - **AC-108**: Triggered commands running inside the container can invoke `/bin/sh -c '...'` (per main spec REQ-006). Verifiable by adding a rule whose `command` is `echo $$` and observing the container's PID via the logs.
-- **AC-109**: A request to `https://slack.com/api/auth.test` from inside the running container succeeds (verifies the CA bundle and `SSL_CERT_FILE` are correctly wired). Test: `docker exec <c> sh -c 'wget -qO- "$SLACK_USER_TOKEN" >/dev/null'` is NOT a valid test (no wget). Valid test: run any rule that calls Slack and confirm the Web API call succeeds.
-- **AC-110**: `docker scan slack-wf-trigger:dev` (or `trivy image`) reports no critical CVEs from the Alpine base layer beyond the standard Alpine CVE cycle, and zero CVEs attributable to `slack-wf-trigger`'s own dependencies.
+- **AC-109**: A request to `https://slack.com/api/auth.test` from inside the running container succeeds on both architectures (verifies the CA bundle and `SSL_CERT_FILE` are correctly wired). Test: `docker exec <c> sh -c 'wget -qO- "$SLACK_USER_TOKEN" >/dev/null'` is NOT a valid test (no wget). Valid test: run any rule that calls Slack and confirm the Web API call succeeds.
+- **AC-110**: `docker scan slack-wf-trigger:dev` (or `trivy image`) on either per-arch image reports no critical CVEs from the Alpine base layer beyond the standard Alpine CVE cycle, and zero CVEs attributable to `slack-wf-trigger`'s own dependencies.
+- **AC-111**: `docker compose config -q` exits 0 against the shipped `docker-compose.yml` and reports a single service `slack-wf-trigger` with the image reference `ghcr.io/ilteoood/slack-wf-trigger:${SLACK_WF_TRIGGER_IMAGE_TAG:-0.3.0}`, a read-only `./rules.json:/etc/slack-wf-trigger/rules.json:ro` mount, a `slack-wf-trigger-state:/var/lib/slack-wf-trigger` named volume, and `SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json` in the environment.
+- **AC-112**: `docker compose up -d` followed by `docker compose exec slack-wf-trigger --help` exits 0 on the host's native arch and the cursors volume `slack-wf-trigger-state` is created and listed by `docker volume ls`.
 
 ## 6. Test Automation Strategy
 
-- **Local sanity**: `docker build -t slack-wf-trigger:dev .` after every change to `Cargo.toml`, `Cargo.lock`, or `Dockerfile`. Time the build.
-- **Smoke test (manual, one-shot)**: `docker run --rm -e SLACK_USER_TOKEN=$TOKEN -v $(pwd)/example-rules.json:/etc/slack-wf-trigger/rules.json slack-wf-trigger:dev --help` should print help and exit 0 (binary reads `--help` flag without touching Slack).
+- **Local sanity**: `docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .` after every change to `Cargo.toml`, `Cargo.lock`, or `Dockerfile`. Time the build. On an `amd64`-only dev machine, `docker buildx build --platform linux/amd64 -t slack-wf-trigger:dev .` is acceptable for fast iteration; the full matrix runs in CI (planned v2).
+- **Smoke test (manual, one-shot)**: `docker run --rm -e SLACK_USER_TOKEN=$TOKEN -v $(pwd)/example-rules.json:/etc/slack-wf-trigger/rules.json slack-wf-trigger:dev --help` should print help and exit 0 (binary reads `--help` flag without touching Slack). Repeat with `--platform linux/arm64` to exercise the arm64 image.
 - **Integration test (manual)**: a rule whose `command` is `echo $SLACK_WF_TRIGGER_TS > /tmp/last_ts` proves that env-var injection still works inside the container.
-- **CI (planned v2)**: GitHub Actions job that builds the image on PR, then runs `trivy image` and `docker run --rm <image> --help` as required checks.
-- **Release publish (planned v2)**: GitHub Actions release job triggered by a `v*.*.*` tag, builds the image, pushes to `ghcr.io/ilteoood/slack-wf-trigger:<version>` and `:latest`. v1 publishing is manual.
+- **CI (planned v2)**: GitHub Actions job that builds the image on PR via `docker buildx build --platform linux/amd64,linux/arm64`, then runs `trivy image` and `docker run --rm <image> --help` as required checks.
+- **Release publish (planned v2)**: GitHub Actions release job triggered by a `v*.*.*` tag, builds the image index, pushes to `ghcr.io/ilteoood/slack-wf-trigger:<version>` and `:latest`. v1 publishing is manual via `docker buildx build --push --platform ...`.
 
 ## 7. Rationale & Context
 
@@ -223,9 +239,9 @@ Shell-form `ENTRYPOINT` (e.g. `ENTRYPOINT slack-wf-trigger`) wraps the binary in
 
 Putting the cursors file alongside the config file is awkward once the config is bind-mounted read-only. The main spec currently writes cursors next to config (REQ-008). The Docker image exposes this knob so operators can split config and state without patching the binary. The relaxation of REQ-008 (honor `SLACK_WF_TRIGGER_CURSORS_PATH` if set) is in scope for this spec and is the only cross-spec change required.
 
-### Why no multi-arch in v1
+### Why multi-arch (`linux/amd64` + `linux/arm64`)
 
-`ponytail:` Cross-compiling Rust to `aarch64-unknown-linux-musl` requires the same Alpine chain on ARM, or `cross` + QEMU. The tool runs only on one machine today (`linux/amd64`). Adding `linux/arm64` doubles the build matrix and CI time for zero current users. Add when a Raspberry Pi enters the fleet; the builder change is `rustup target add aarch64-unknown-linux-musl` + a second `cargo build --release --target=...` + a multi-arch `FROM` in the runtime stage.
+`linux/arm64` is included from v0.2.0 because a Raspberry Pi (or any ARM host) can be a deployment target — same operator, same Slack workspace, different box. The cost is one extra `rustup target add aarch64-unknown-linux-musl` and a `--platform` flag in the build command; no new tooling. The builder stage pins `--platform=$BUILDPLATFORM`, so the rustc binary itself runs natively on the builder host — only the emitted artifact is cross-compiled. No QEMU is invoked at build time, which keeps the cold-cache budget from REQ-112 realistic. QEMU is invoked only at run time when a developer explicitly pulls a non-host arch (e.g. `docker run --platform linux/arm64` on an `amd64` laptop); operators on native hardware pull the native image and pay no emulation cost. The runtime stage pins `--platform=$TARGETPLATFORM` so `alpine:3.20` resolves to the matching arch and no foreign-architecture layer leaks into the image. The image is published as a single tag backed by an OCI manifest list — `docker pull ghcr.io/ilteoood/slack-wf-trigger:0.2.0` selects the right arch automatically. Other architectures (`linux/arm/v7`, `linux/ppc64le`, `linux/s390x`) remain out of scope; add when a concrete target appears.
 
 ### Why no `cargo-chef` in v1
 
@@ -272,17 +288,30 @@ Secrets in image layers are world-readable to anyone who can `docker pull`. The 
 ### Build
 
 ```bash
-docker build -t slack-wf-trigger:dev .
-docker build -t ghcr.io/ilteoood/slack-wf-trigger:0.1.0 .
+docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .
+docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/ilteoood/slack-wf-trigger:0.2.0 --push .
 ```
+
+`--platform` is mandatory for multi-arch: omitting it (or using the legacy `docker build`) produces a single-arch image for the builder host only and breaks the image-index contract. Use `docker buildx` exclusively; the repo's `Dockerfile` is authored for BuildKit (per CON-105).
 
 ### Run (smoke test)
 
 ```bash
 docker run --rm slack-wf-trigger:dev --help
+docker run --rm --platform linux/arm64 slack-wf-trigger:dev --help
 ```
 
-### Run (real)
+On an `amd64` host, the second command pulls and runs the `arm64` image via QEMU emulation — useful as a sanity check that the cross-compiled binary actually executes, not just builds. Native users on `arm64` get the native image automatically by omitting `--platform`.
+
+### Run (real, `docker compose` — recommended)
+
+```bash
+SLACK_USER_TOKEN=xoxp-... docker compose up -d
+```
+
+The shipped `docker-compose.yml` wires the recommended layout (read-only `./rules.json` bind-mount, named `slack-wf-trigger-state` volume, cursors-path override, `unless-stopped` restart). Operators only need to provide `SLACK_USER_TOKEN`. Image tag is overridable via `SLACK_WF_TRIGGER_IMAGE_TAG` (default `:0.3.0`).
+
+### Run (real, raw `docker run` — for completeness)
 
 ```bash
 docker run -d \
@@ -293,8 +322,10 @@ docker run -d \
   -v $PWD/rules.json:/etc/slack-wf-trigger/rules.json:ro \
   -v slack-wf-trigger-state:/var/lib/slack-wf-trigger \
   -e SLACK_WF_TRIGGER_CURSORS_PATH=/var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json \
-  ghcr.io/ilteoood/slack-wf-trigger:0.1.0
+  ghcr.io/ilteoood/slack-wf-trigger:0.3.0
 ```
+
+The `:0.3.0` tag resolves to an image index; Docker selects `linux/amd64` or `linux/arm64` based on the host. No `--platform` is needed in production.
 
 ### Edge cases handled
 
@@ -303,10 +334,12 @@ docker run -d \
 - Volume not mounted for cursors file → cursors are written into the container's writable layer. On `docker rm` they're lost. Documented; operator's job to mount a volume.
 - `docker stop` during an in-flight triggered command → the binary's signal handler flushes cursors but does NOT kill the spawned subprocess (per main spec's "no command timeout enforcement in v1"). The child may continue running until the container's PID 1 exits; if the kernel reaps the child, it gets SIGKILL on container exit.
 - Image pulled with a stale digest → TLS validation fails (`reqwest` rejects the cert); the binary logs a connection error and the operator notices.
+- Pulling the image on a host with an unsupported architecture (e.g. `linux/ppc64le`) → Docker fails with a clear manifest-list error rather than silently picking a foreign-arch image. Operator's job to use a supported host or open an issue.
+- Cross-arch run on a developer laptop (`docker run --platform linux/arm64` on an `amd64` host) → QEMU emulates the `arm64` binary at run time; it works, but cold-start latency is higher and any per-arch-specific tooling must still resolve correctly. Documented as a developer-only convenience, not a production path.
 
 ### Edge cases NOT handled in v1
 
-- `linux/arm64` — see Section 7.
+- Architectures other than `linux/amd64` and `linux/arm64` — see Section 7.
 - Auto-restart on transient Slack 5xx — restart policy is the operator's call (`--restart on-failure:5` is a reasonable default but is not baked into the image).
 - Config hot reload — main spec already defers this; the image doesn't reopen it.
 - Resource limits (`--memory`, `--cpus`) — operator's call.
@@ -315,11 +348,12 @@ docker run -d \
 
 A change to the Dockerfile, `.dockerignore`, or anything in `src/` or `Cargo.toml` is image-spec-compliant when:
 
-- `docker build -t slack-wf-trigger:dev .` succeeds locally.
-- `docker run --rm slack-wf-trigger:dev --help` exits 0.
-- Compressed image size is under 50 MB (`docker image ls --format='{{.Size}}'` shows the uncompressed size; divide by ~3 for compressed).
-- `USER` is `nobody` (AC-102).
-- `ENTRYPOINT` is `[/slack-wf-trigger]` exec form (AC-103).
+- `docker buildx build --platform linux/amd64,linux/arm64 -t slack-wf-trigger:dev .` succeeds locally.
+- `docker run --rm slack-wf-trigger:dev --help` exits 0 on the host's native arch.
+- `docker buildx imagetools inspect slack-wf-trigger:dev` lists both `linux/amd64` and `linux/arm64`.
+- Compressed image size is under 50 MB per arch (`docker image ls --format='{{.Size}}'` shows the uncompressed size; divide by ~3 for compressed).
+- `USER` is `nobody` for every per-arch image (AC-102).
+- `ENTRYPOINT` is `[/slack-wf-trigger]` exec form for every per-arch image (AC-103).
 - `SSL_CERT_FILE` is set to a path inside the image that exists at runtime (AC-109).
 - Any change to `Cargo.toml` without a corresponding `Cargo.lock` update fails CI (planned v2; manual check in v1).
 
@@ -332,4 +366,7 @@ A change to the Dockerfile, `.dockerignore`, or anything in `src/` or `Cargo.tom
 - `docker stop` semantics — https://docs.docker.com/reference/cli/docker/container/stop/
 - GitHub Container Registry — https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry
 - Rust musl target — https://doc.rust-lang.org/nightly/rustc/platform-support/x86_64-unknown-linux-musl.html
+- Rust musl target (arm64) — https://doc.rust-lang.org/nightly/rustc/platform-support/aarch64-unknown-linux-musl.html
+- BuildKit multi-platform builds — https://docs.docker.com/build/building/multi-platform/
+- `docker buildx imagetools inspect` — https://docs.docker.com/reference/cli/docker/buildx/imagetools/inspect/
 - `reqwest` rustls feature — https://docs.rs/reqwest
