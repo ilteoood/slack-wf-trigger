@@ -6,7 +6,6 @@ tests/
 spec/
 *.md
 !README.md
-scripts/
 
 .vscode/
 .idea/
