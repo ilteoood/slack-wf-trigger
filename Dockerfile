@@ -1,20 +1,23 @@
-FROM --platform=$TARGETPLATFORM alpine:3.20
-
+FROM alpine:latest AS builder
 ARG TARGETARCH
+WORKDIR /builder
+COPY . .
+RUN ./scripts/binary.sh $TARGETARCH && \
+    echo "nobody:x:65534:65534:Nobody:/:" > /etc_passwd
 
-RUN apk add --no-cache ca-certificates
-
-COPY --chmod=0755 bin/slack-wf-trigger-${TARGETARCH} /slack-wf-trigger
-
-RUN mkdir -p /etc/slack-wf-trigger /var/lib/slack-wf-trigger \
-    && chown -R nobody:nogroup /etc/slack-wf-trigger /var/lib/slack-wf-trigger
-
+FROM scratch
+COPY --from=builder --chmod=755 /builder/slack-wf-trigger ./slack-wf-trigger
+COPY --from=builder "/etc_passwd" "/etc/passwd"
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /usr/local/ssl/ca-certificates.crt
 USER nobody
-WORKDIR /var/lib/slack-wf-trigger
 
+ENV SSL_CERT_FILE=/usr/local/ssl/ca-certificates.crt
 ENV RUST_LOG=info
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV SLACK_WF_TRIGGER_CONFIG=/etc/slack-wf-trigger/rules.json
 ENV SLACK_WF_TRIGGER_POLL_INTERVAL=10
 
-CMD ["/slack-wf-trigger"]
+ENV SLACK_BASE_URL=https://slack.com
+ENV SLACK_TOKEN=your-slack-token
+ENV SLACK_COOKIE=your-slack-cookie
+
+CMD ["./slack-wf-trigger"]
