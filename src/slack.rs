@@ -10,9 +10,7 @@ const MAX_POLL_RETRIES: u32 = 3;
 #[derive(Debug, Clone)]
 pub struct SlackApi {
     http: reqwest::Client,
-    token: String,
     base: String,
-    cookie: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -70,6 +68,16 @@ impl SlackApi {
         base: impl Into<String>,
         cookie: Option<String>,
     ) -> Result<Self> {
+        let token = token.into();
+        let base = base.into();
+        let mut default_headers = reqwest::header::HeaderMap::new();
+        default_headers.insert(
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {token}").parse().unwrap(),
+        );
+        if let Some(d) = &cookie {
+            default_headers.insert(reqwest::header::COOKIE, format!("d={d}").parse().unwrap());
+        }
         let http = reqwest::Client::builder()
             .user_agent(format!(
                 "{}/{}",
@@ -77,14 +85,10 @@ impl SlackApi {
                 env!("CARGO_PKG_VERSION")
             ))
             .timeout(Duration::from_secs(30))
+            .default_headers(default_headers)
             .build()
             .context("failed to build HTTP client")?;
-        Ok(Self {
-            http,
-            token: token.into(),
-            base: base.into(),
-            cookie,
-        })
+        Ok(Self { http, base })
     }
 
     pub async fn auth_test(&self) -> Result<AuthTestResponse> {
@@ -211,11 +215,7 @@ impl SlackApi {
 
         loop {
             attempt += 1;
-            let mut request = self.http.post(&url).bearer_auth(&self.token);
-            if let Some(d) = &self.cookie {
-                request = request.header(reqwest::header::COOKIE, format!("d={d}"));
-            }
-            let response = request.form(params).send().await;
+            let response = self.http.post(&url).form(params).send().await;
 
             match response {
                 Ok(resp) => {
