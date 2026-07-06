@@ -4,7 +4,6 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde::Deserialize;
 use tracing::{debug, warn};
 
-const DEFAULT_BASE_URL: &str = "https://slack.com/api";
 const HISTORY_PAGE_SIZE: u32 = 100;
 const MAX_POLL_RETRIES: u32 = 3;
 
@@ -13,6 +12,7 @@ pub struct SlackApi {
     http: reqwest::Client,
     token: String,
     base: String,
+    cookie: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,11 +65,11 @@ impl RawMessage {
 }
 
 impl SlackApi {
-    pub fn new(token: impl Into<String>) -> Result<Self> {
-        Self::with_base(token, DEFAULT_BASE_URL.to_owned())
-    }
-
-    pub fn with_base(token: impl Into<String>, base: String) -> Result<Self> {
+    pub fn new(
+        token: impl Into<String>,
+        base: impl Into<String>,
+        cookie: Option<String>,
+    ) -> Result<Self> {
         let http = reqwest::Client::builder()
             .user_agent(format!(
                 "{}/{}",
@@ -82,7 +82,8 @@ impl SlackApi {
         Ok(Self {
             http,
             token: token.into(),
-            base,
+            base: base.into(),
+            cookie,
         })
     }
 
@@ -210,13 +211,11 @@ impl SlackApi {
 
         loop {
             attempt += 1;
-            let response = self
-                .http
-                .post(&url)
-                .bearer_auth(&self.token)
-                .form(params)
-                .send()
-                .await;
+            let mut request = self.http.post(&url).bearer_auth(&self.token);
+            if let Some(d) = &self.cookie {
+                request = request.header(reqwest::header::COOKIE, format!("d={d}"));
+            }
+            let response = request.form(params).send().await;
 
             match response {
                 Ok(resp) => {
@@ -335,5 +334,60 @@ mod tests {
         };
         assert!(ch.matches("D0123"));
         assert!(!ch.matches("anything"));
+    }
+
+    #[tokio::test]
+    async fn call_sends_bearer_and_cookie_when_configured() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth.test"))
+            .and(header("authorization", "Bearer xoxp-test"))
+            .and(header("cookie", "d=abc123"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+                "user_id": "U_OP",
+                "user": "op",
+                "team": "T1",
+                "team_id": "T1"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let api = SlackApi::new("xoxp-test", server.uri(), Some("abc123".into())).unwrap();
+        api.auth_test().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn call_omits_cookie_when_not_configured() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/auth.test"))
+            .and(header("authorization", "Bearer xoxp-test"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "ok": true,
+                "user_id": "U_OP",
+                "user": "op",
+                "team": "T1",
+                "team_id": "T1"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
+        api.auth_test().await.unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        assert!(
+            requests[0].headers.get("cookie").is_none(),
+            "no cookie header should be sent when SLACK_COOKIE is unset"
+        );
     }
 }

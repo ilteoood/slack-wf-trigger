@@ -121,7 +121,7 @@ async fn ac001_happy_path_thumbsup_before_command_white_check_on_success() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C_GENERAL":"1717600042.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
 
     let rules = vec![rule("general", "ping", false, "echo pong > out.log", 0)];
 
@@ -208,7 +208,7 @@ async fn ac002_cursor_filters_old_messages() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600042.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "ping", false, "echo hit > out.log", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -258,7 +258,7 @@ async fn ac003_two_rules_for_same_channel_spawn_both_in_order() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![
         rule("general", "build green", false, "echo a >> out.log", 0),
         rule("general", "release ", false, "echo b >> out.log", 1),
@@ -306,7 +306,7 @@ async fn ac014_self_authored_message_is_ignored() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "ping", false, "echo hit > out.log", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -372,7 +372,7 @@ async fn ac013_failure_reaction_added_on_non_zero_exit() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "deploy", false, "sh -c 'exit 42'", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -432,7 +432,7 @@ async fn ac015_already_reacted_treated_as_success() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "ping", false, "echo ok > out.log", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -490,7 +490,7 @@ async fn ac016_reaction_failure_does_not_block_command() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "ping", false, "echo ok > out.log", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -533,7 +533,7 @@ async fn ac017_fresh_install_seeds_cursor_without_spawning_commands() {
 
     let dir = TempDir::new().unwrap();
     assert!(!dir.path().join(".slack-wf-trigger.cursors.json").exists());
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule("general", "ping", false, "echo nope > out.log", 0)];
 
     let mut store = CursorStore::load(dir.path()).unwrap();
@@ -582,7 +582,7 @@ async fn ac004_regex_accepts_prod() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule(
         "general",
         "^deploy (prod|staging)$",
@@ -635,7 +635,7 @@ async fn ac004_regex_rejects_dev() {
 
     let dir = TempDir::new().unwrap();
     write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::with_base("xoxp-test", server.uri()).unwrap();
+    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
     let rules = vec![rule(
         "general",
         "^deploy (prod|staging)$",

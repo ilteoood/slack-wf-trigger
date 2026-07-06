@@ -4,7 +4,9 @@ services:
     container_name: slack-wf-trigger
     restart: unless-stopped
     environment:
-      SLACK_USER_TOKEN: ${SLACK_USER_TOKEN:?SLACK_USER_TOKEN must be set}
+      SLACK_TOKEN: ${SLACK_TOKEN:?SLACK_TOKEN must be set}
+      SLACK_COOKIE: ${SLACK_COOKIE:?SLACK_COOKIE must be set}
+      SLACK_BASE_URL: ${SLACK_BASE_URL:-https://slack.com}
       SLACK_WF_TRIGGER_CURSORS_PATH: /var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json
     volumes:
       - ./rules.json:/etc/slack-wf-trigger/rules.json:ro

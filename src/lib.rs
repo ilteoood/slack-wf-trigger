@@ -20,7 +20,9 @@ use crate::slack::{ChannelRef, SlackApi};
 pub struct RunArgs {
     pub config_path: PathBuf,
     pub poll_interval: u64,
-    pub slack_base_url: Option<String>,
+    pub slack_token: String,
+    pub slack_base_url: String,
+    pub slack_cookie: Option<String>,
 }
 
 struct PollLoopCtx<'a> {
@@ -38,22 +40,22 @@ pub async fn run(args: RunArgs) -> Result<()> {
         bail!("config file contains no rules");
     }
 
-    let token = std::env::var("SLACK_USER_TOKEN")
-        .context("SLACK_USER_TOKEN environment variable is required")?;
-    if token.trim().is_empty() {
-        bail!("SLACK_USER_TOKEN environment variable is empty");
+    let token = args.slack_token.trim();
+    if token.is_empty() {
+        bail!("SLACK_TOKEN is empty");
     }
 
-    let api = match &args.slack_base_url {
-        Some(base) => SlackApi::with_base(token.clone(), base.clone())
-            .context("failed to construct Slack client")?,
-        None => SlackApi::new(token).context("failed to construct Slack client")?,
-    };
+    let api = SlackApi::new(
+        token,
+        args.slack_base_url.clone(),
+        args.slack_cookie.clone(),
+    )
+    .context("failed to construct Slack client")?;
 
     let auth = api
         .auth_test()
         .await
-        .context("auth.test failed — is SLACK_USER_TOKEN valid?")?;
+        .context("auth.test failed — is SLACK_TOKEN valid?")?;
     info!(user_id = %auth.user_id, user = %auth.user, team = %auth.team, "authenticated");
 
     let channels = api

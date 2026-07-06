@@ -22,6 +22,15 @@ struct Cli {
     #[arg(long, env = "SLACK_WF_TRIGGER_CONFIG", value_name = "PATH")]
     config: Option<PathBuf>,
 
+    #[arg(long, env = "SLACK_TOKEN", hide_env = true)]
+    slack_token: String,
+
+    #[arg(long, env = "SLACK_COOKIE", hide_env = true)]
+    slack_cookie: Option<String>,
+
+    #[arg(long, env = "SLACK_BASE_URL", default_value = "https://slack.com/api")]
+    slack_base_url: String,
+
     #[arg(
         long,
         env = "SLACK_WF_TRIGGER_POLL_INTERVAL",
@@ -55,10 +64,17 @@ async fn main() -> ExitCode {
         }
     };
 
+    let cookie = cli
+        .slack_cookie
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty());
+
     let args = RunArgs {
         config_path,
         poll_interval: cli.poll_interval,
-        slack_base_url: None,
+        slack_token: cli.slack_token,
+        slack_base_url: cli.slack_base_url,
+        slack_cookie: cookie,
     };
 
     match slack_wf_trigger::run(args).await {
