@@ -2,18 +2,16 @@ FROM alpine:latest AS builder
 ARG TARGETARCH
 WORKDIR /builder
 COPY . .
-RUN ./scripts/binary.sh $TARGETARCH && \
-    echo "nobody:x:65534:65534:Nobody:/:" > /etc_passwd
+RUN ./scripts/binary.sh $TARGETARCH
 
-FROM scratch
+FROM alpine:latest
 COPY --from=builder --chmod=755 /builder/slack-wf-trigger ./slack-wf-trigger
-COPY --from=builder "/etc_passwd" "/etc/passwd"
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /usr/local/ssl/ca-certificates.crt
-USER nobody
 
-ENV SSL_CERT_FILE=/usr/local/ssl/ca-certificates.crt
+RUN apk add --no-cache curl
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV RUST_LOG=info
-ENV SLACK_WF_HOME=/var/lib/slack-wf-trigger
+ENV SLACK_WF_HOME=/root/slack-wf-trigger
 ENV SLACK_WF_TRIGGER_POLL_INTERVAL=10
 
 ENV SLACK_BASE_URL=https://slack.com
