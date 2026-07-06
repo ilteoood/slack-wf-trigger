@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use tokio::process::Command;
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 use crate::config::{Matcher, Rule};
 use crate::cursors::CursorStore;
@@ -74,13 +74,7 @@ pub async fn process_message(
     workdir: &Path,
     msg: &MessageContext,
     matched: &[&Rule],
-    self_user_id: Option<&str>,
 ) {
-    if is_self_authored(msg, self_user_id) {
-        debug!(ts = %msg.ts, "skipping self-authored message");
-        return;
-    }
-
     add_reaction_quietly(api, &msg.channel_id, &msg.ts, "thumbsup").await;
 
     for rule in matched {
@@ -128,13 +122,6 @@ pub async fn process_message(
                 add_reaction_quietly(api, &msg.channel_id, &msg.ts, "x").await;
             }
         }
-    }
-}
-
-pub fn is_self_authored(msg: &MessageContext, self_user_id: Option<&str>) -> bool {
-    match (self_user_id, msg.user.as_deref()) {
-        (Some(me), Some(u)) => me == u,
-        _ => false,
     }
 }
 
@@ -223,7 +210,6 @@ pub async fn poll_channel(
     store: &mut CursorStore,
     channel: &ChannelRef,
     rules: &[Rule],
-    self_user_id: Option<&str>,
     workdir: &Path,
 ) -> Result<()> {
     let cursor = store.get(&channel.id).cloned();
@@ -276,7 +262,7 @@ pub async fn poll_channel(
                 matched_rules = matched.len(),
                 "message matched"
             );
-            process_message(api, workdir, &msg, &matched, self_user_id).await;
+            process_message(api, workdir, &msg, &matched).await;
         }
 
         store.set(channel.id.clone(), msg.ts.clone());
@@ -350,20 +336,6 @@ mod tests {
 
         let picked_none = rules_for_channel(&rules, &channels, "missing");
         assert!(picked_none.is_empty());
-    }
-
-    #[test]
-    fn self_authored_filter() {
-        let msg = MessageContext {
-            channel_id: "C1".into(),
-            channel_name: Some("general".into()),
-            user: Some("U123".into()),
-            text: "hi".into(),
-            ts: "1.0".into(),
-        };
-        assert!(is_self_authored(&msg, Some("U123")));
-        assert!(!is_self_authored(&msg, Some("U999")));
-        assert!(!is_self_authored(&msg, None));
     }
 
     #[tokio::test]

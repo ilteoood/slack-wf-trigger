@@ -30,7 +30,6 @@ struct PollLoopCtx<'a> {
     store: &'a mut CursorStore,
     channels: &'a [ChannelRef],
     rules: &'a [Rule],
-    self_user_id: Option<&'a str>,
     workdir: &'a std::path::Path,
 }
 
@@ -74,18 +73,11 @@ pub async fn run(args: RunArgs) -> Result<()> {
     let shutdown = Arc::new(Notify::new());
     spawn_signal_handler(shutdown.clone());
 
-    let self_user_id = if auth.user_id.is_empty() {
-        None
-    } else {
-        Some(auth.user_id.as_str())
-    };
-
     let mut ctx = PollLoopCtx {
         api: &api,
         store: &mut store,
         channels: &watched,
         rules: &rules,
-        self_user_id,
         workdir: &args.home,
     };
     poll_loop(&mut ctx, args.poll_interval, shutdown.clone()).await?;
@@ -118,7 +110,6 @@ async fn poll_loop(
                         ctx.store,
                         channel,
                         ctx.rules,
-                        ctx.self_user_id,
                         ctx.workdir,
                     )
                     .await
