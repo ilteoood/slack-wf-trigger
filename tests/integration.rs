@@ -131,16 +131,9 @@ async fn ac001_happy_path_thumbsup_before_command_white_check_on_success() {
         name: Some("general".into()),
     };
 
-    trigger::poll_channel(
-        &api,
-        &mut store,
-        &channel,
-        &rules,
-        Some("U_OPERATOR"),
-        dir.path(),
-    )
-    .await
-    .unwrap();
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
+        .await
+        .unwrap();
     store.persist().unwrap();
 
     assert!(dir.path().join("out.log").exists(), "command did not spawn");
@@ -217,7 +210,7 @@ async fn ac002_cursor_filters_old_messages() {
         name: Some("general".into()),
     };
 
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
@@ -269,73 +262,13 @@ async fn ac003_two_rules_for_same_channel_spawn_both_in_order() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
     let log = std::fs::read_to_string(dir.path().join("out.log")).unwrap();
     let lines: Vec<&str> = log.lines().collect();
     assert_eq!(lines, vec!["a", "b"], "rules should run in order");
-}
-
-#[tokio::test]
-async fn ac014_self_authored_message_is_ignored() {
-    let server = MockServer::start().await;
-
-    Mock::given(method("POST"))
-        .and(path("/auth.test"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(auth_test_response("U_SELF")))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/conversations.list"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(channel_list(&[("C0", "general")])))
-        .mount(&server)
-        .await;
-    Mock::given(method("POST"))
-        .and(path("/conversations.history"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(history_response(&[(
-                "U_SELF",
-                "please ping me",
-                "1717600045.000100",
-            )])),
-        )
-        .mount(&server)
-        .await;
-
-    let dir = TempDir::new().unwrap();
-    write_cursors(dir.path(), r#"{"C0":"1717600040.000000"}"#);
-    let api = SlackApi::new("xoxp-test", server.uri(), None).unwrap();
-    let rules = vec![rule("general", "ping", false, "echo hit > out.log", 0)];
-
-    let mut store = CursorStore::load(dir.path()).unwrap();
-    let channel = ChannelRef {
-        id: "C0".into(),
-        name: Some("general".into()),
-    };
-    trigger::poll_channel(
-        &api,
-        &mut store,
-        &channel,
-        &rules,
-        Some("U_SELF"),
-        dir.path(),
-    )
-    .await
-    .unwrap();
-
-    assert!(
-        !dir.path().join("out.log").exists(),
-        "command should not have run for self-authored message"
-    );
-
-    let requests = server.received_requests().await.unwrap();
-    let reactions = requests
-        .iter()
-        .filter(|r| r.url.path() == "/reactions.add")
-        .count();
-    assert_eq!(reactions, 0, "no reactions for self-authored message");
 }
 
 #[tokio::test]
@@ -380,7 +313,7 @@ async fn ac013_failure_reaction_added_on_non_zero_exit() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
@@ -440,8 +373,7 @@ async fn ac015_already_reacted_treated_as_success() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    let result =
-        trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path()).await;
+    let result = trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path()).await;
     assert!(
         result.is_ok(),
         "already_reacted must not fail poll: {:?}",
@@ -498,7 +430,7 @@ async fn ac016_reaction_failure_does_not_block_command() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
@@ -541,7 +473,7 @@ async fn ac017_fresh_install_seeds_cursor_without_spawning_commands() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
     store.persist().unwrap();
@@ -596,7 +528,7 @@ async fn ac004_regex_accepts_prod() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
@@ -649,7 +581,7 @@ async fn ac004_regex_rejects_dev() {
         id: "C0".into(),
         name: Some("general".into()),
     };
-    trigger::poll_channel(&api, &mut store, &channel, &rules, Some("U_OP"), dir.path())
+    trigger::poll_channel(&api, &mut store, &channel, &rules, dir.path())
         .await
         .unwrap();
 
