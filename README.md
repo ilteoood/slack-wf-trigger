@@ -20,7 +20,8 @@ persisted to disk so reconnects and restarts do not re-trigger commands.
   exposed as environment variables.
 - Idempotent resume via per-channel `ts` cursors persisted to JSON.
 - Slack reactions as status: `:thumbsup:` on match, `:white_check_mark:` on
-  success, `:x:` on failure. Self-authored messages are ignored.
+  success, `:x:` on failure. Messages authored by the daemon's own user are
+  processed like any other.
 - Graceful shutdown on `SIGINT` / `SIGTERM`.
 
 > [!WARNING]
