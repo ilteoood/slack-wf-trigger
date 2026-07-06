@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
@@ -283,10 +283,6 @@ pub async fn poll_channel(
     }
 
     Ok(())
-}
-
-pub fn cursor_for(workdir: &Path) -> PathBuf {
-    workdir.to_path_buf()
 }
 
 #[cfg(test)]

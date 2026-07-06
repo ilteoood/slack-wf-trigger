@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use regex::Regex;
@@ -7,6 +7,8 @@ use serde_json::Value;
 
 const JSON_DEPTH_LIMIT: usize = 32;
 const SLACK_CHANNEL_ID_PATTERN: &str = r"^[CGDW][A-Z0-9]{8,}$";
+
+pub const RULES_FILE_NAME: &str = "rules.json";
 
 #[derive(Debug, Clone)]
 pub struct Rule {
@@ -127,13 +129,6 @@ pub fn looks_like_channel_id(name: &str) -> bool {
     Regex::new(SLACK_CHANNEL_ID_PATTERN)
         .expect("constant regex compiles")
         .is_match(name)
-}
-
-pub fn config_dir(config_path: &Path) -> PathBuf {
-    config_path
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 #[cfg(test)]

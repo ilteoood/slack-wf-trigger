@@ -19,8 +19,8 @@ groups:read, reactions:write, users:read. Optional: im:history, mpim:history, im
 mpim:read."
 )]
 struct Cli {
-    #[arg(long, env = "SLACK_WF_TRIGGER_CONFIG", value_name = "PATH")]
-    config: Option<PathBuf>,
+    #[arg(long, env = "SLACK_WF_HOME", value_name = "DIR")]
+    home: Option<PathBuf>,
 
     #[arg(long, env = "SLACK_TOKEN", hide_env = true)]
     slack_token: String,
@@ -53,13 +53,10 @@ async fn main() -> ExitCode {
 
     let cli = Cli::parse();
 
-    let config_path = match cli.config {
+    let home = match cli.home {
         Some(p) => p,
         None => {
-            eprintln!(
-                "error: missing --config <PATH> (or SLACK_WF_TRIGGER_CONFIG env var); \
-                 nothing to do"
-            );
+            eprintln!("error: missing --home <DIR> (or SLACK_WF_HOME env var); nothing to do");
             return ExitCode::from(1);
         }
     };
@@ -70,7 +67,7 @@ async fn main() -> ExitCode {
         .filter(|s| !s.is_empty());
 
     let args = RunArgs {
-        config_path,
+        home,
         poll_interval: cli.poll_interval,
         slack_token: cli.slack_token,
         slack_base_url: cli.slack_base_url,

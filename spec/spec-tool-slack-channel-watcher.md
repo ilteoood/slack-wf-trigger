@@ -63,14 +63,14 @@ Provide a single static binary that:
 
 ### Functional Requirements
 
-- **REQ-001**: The binary shall load its rule list from a JSON file path provided via `--config <path>` CLI flag or `SLACK_WF_TRIGGER_CONFIG` env var (CLI flag wins).
+- **REQ-001**: The binary shall load its rule list from `<SLACK_WF_HOME>/rules.json`, where `SLACK_WF_HOME` is a directory path provided via `--home <DIR>` CLI flag or `SLACK_WF_HOME` env var (CLI flag wins).
 - **REQ-002**: The rule list shall be a JSON array. Each element must contain `channel` (string), `message` (string), `command` (string).
 - **REQ-003**: On startup the binary shall establish a Slack connection and begin receiving messages from the union of channels named in the rule list.
 - **REQ-004**: For every received message, the binary shall evaluate each rule whose `channel` matches the message's channel.
 - **REQ-005**: A rule matches when the rule's `message` value is a substring of the message's `text` (case-sensitive, after stripping Slack mrkdwn formatting). Optional `regex: true` per rule switches the rule to regex matching against `text`.
-- **REQ-006**: For each match, the binary shall spawn the rule's `command` via `sh -c` with the working directory set to the directory containing the config file.
+- **REQ-006**: For each match, the binary shall spawn the rule's `command` via `sh -c` with the working directory set to `SLACK_WF_HOME`.
 - **REQ-007**: The binary shall expose the originating message metadata to the command via environment variables: `SLACK_WF_TRIGGER_CHANNEL`, `SLACK_WF_TRIGGER_USER`, `SLACK_WF_TRIGGER_TEXT`, `SLACK_WF_TRIGGER_TS`, `SLACK_WF_TRIGGER_RULE_INDEX`.
-- **REQ-008**: The binary shall persist per-channel cursors (`latest` `ts` per channel) to `<config-dir>/.slack-wf-trigger.cursors.json` after every successful poll cycle. On startup the binary shall resume each channel from its persisted cursor. First run (no cursor file) shall fetch the most recent 100 messages per channel without triggering commands and seed the cursor.
+- **REQ-008**: The binary shall persist per-channel cursors (`latest` `ts` per channel) to `<SLACK_WF_HOME>/.slack-wf-trigger.cursors.json` after every successful poll cycle. On startup the binary shall resume each channel from its persisted cursor. First run (no cursor file) shall fetch the most recent 100 messages per channel without triggering commands and seed the cursor.
 - **REQ-009**: The binary shall emit a structured log line on every: rule match, command spawn, command exit (with exit code, duration, stdout/stderr tail).
 - **REQ-010**: The binary shall exit non-zero on startup if the config file is missing, malformed, or references no resolvable channels.
 - **REQ-011**: When a message matches at least one rule, the binary shall add a `thumbsup` reaction to that message **before** spawning the first matching command. Failure to add the reaction shall be logged but shall not block command execution.
@@ -104,12 +104,12 @@ Provide a single static binary that:
 ### CLI
 
 ```
-slack-wf-trigger --config /etc/slack-wf-trigger/rules.json
+slack-wf-trigger --home /var/lib/slack-wf-trigger
 ```
 
 | Flag | Env | Default | Purpose |
 |---|---|---|---|
-| `--config <PATH>` | `SLACK_WF_TRIGGER_CONFIG` | none (required) | Path to the JSON rule list. |
+| `--home <DIR>` | `SLACK_WF_HOME` | none (required) | Directory holding `rules.json` and the cursors file. |
 | `--poll-interval <SECS>` | `SLACK_WF_TRIGGER_POLL_INTERVAL` | `10` | Seconds between polls per channel. Must be ≥ 1. |
 
 Exit codes:
