@@ -7,9 +7,9 @@ services:
       SLACK_TOKEN: ${SLACK_TOKEN:?SLACK_TOKEN must be set}
       SLACK_COOKIE: ${SLACK_COOKIE:?SLACK_COOKIE must be set}
       SLACK_BASE_URL: ${SLACK_BASE_URL:-https://slack.com}
-      SLACK_WF_TRIGGER_CURSORS_PATH: /var/lib/slack-wf-trigger/.slack-wf-trigger.cursors.json
+      SLACK_WF_HOME: /var/lib/slack-wf-trigger
     volumes:
-      - ./rules.json:/etc/slack-wf-trigger/rules.json:ro
+      - ./rules.json:/var/lib/slack-wf-trigger/rules.json:ro
       - slack-wf-trigger-state:/var/lib/slack-wf-trigger
 
 volumes:

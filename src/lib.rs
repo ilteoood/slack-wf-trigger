@@ -18,7 +18,7 @@ use crate::cursors::CursorStore;
 use crate::slack::{ChannelRef, SlackApi};
 
 pub struct RunArgs {
-    pub config_path: PathBuf,
+    pub home: PathBuf,
     pub poll_interval: u64,
     pub slack_token: String,
     pub slack_base_url: String,
@@ -35,7 +35,8 @@ struct PollLoopCtx<'a> {
 }
 
 pub async fn run(args: RunArgs) -> Result<()> {
-    let rules = config::load_rules(&args.config_path)?;
+    let rules_path = args.home.join(config::RULES_FILE_NAME);
+    let rules = config::load_rules(&rules_path)?;
     if rules.is_empty() {
         bail!("config file contains no rules");
     }
@@ -65,13 +66,10 @@ pub async fn run(args: RunArgs) -> Result<()> {
     let watched = resolve_channels(&rules, &channels)?;
     info!(count = watched.len(), "resolved watched channels");
 
-    let workdir = config::config_dir(&args.config_path);
-    let mut store = CursorStore::load(&workdir)?;
-    if let Some(parent) = store.path().parent()
-        && !parent.exists()
-    {
-        std::fs::create_dir_all(parent).ok();
-    }
+    std::fs::create_dir_all(&args.home)
+        .with_context(|| format!("failed to create SLACK_WF_HOME {}", args.home.display()))?;
+
+    let mut store = CursorStore::load(&args.home)?;
 
     let shutdown = Arc::new(Notify::new());
     spawn_signal_handler(shutdown.clone());
@@ -88,7 +86,7 @@ pub async fn run(args: RunArgs) -> Result<()> {
         channels: &watched,
         rules: &rules,
         self_user_id,
-        workdir: &workdir,
+        workdir: &args.home,
     };
     poll_loop(&mut ctx, args.poll_interval, shutdown.clone()).await?;
 

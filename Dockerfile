@@ -13,7 +13,7 @@ USER nobody
 
 ENV SSL_CERT_FILE=/usr/local/ssl/ca-certificates.crt
 ENV RUST_LOG=info
-ENV SLACK_WF_TRIGGER_CONFIG=/etc/slack-wf-trigger/rules.json
+ENV SLACK_WF_HOME=/var/lib/slack-wf-trigger
 ENV SLACK_WF_TRIGGER_POLL_INTERVAL=10
 
 ENV SLACK_BASE_URL=https://slack.com
