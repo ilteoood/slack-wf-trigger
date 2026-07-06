@@ -79,11 +79,6 @@ impl SlackApi {
             default_headers.insert(reqwest::header::COOKIE, format!("d={d}").parse().unwrap());
         }
         let http = reqwest::Client::builder()
-            .user_agent(format!(
-                "{}/{}",
-                env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION")
-            ))
             .timeout(Duration::from_secs(30))
             .default_headers(default_headers)
             .build()
