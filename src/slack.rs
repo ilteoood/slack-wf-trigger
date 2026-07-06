@@ -102,7 +102,7 @@ impl SlackApi {
             let mut params: Vec<(&str, String)> = vec![
                 ("types", "public_channel,private_channel,mpim,im".into()),
                 ("exclude_archived", "true".into()),
-                ("limit", "200".into()),
+                ("limit", "1000".into()),
             ];
             if let Some(c) = &cursor {
                 params.push(("cursor", c.clone()));
